@@ -116,7 +116,7 @@ p {
   transform-style: preserve-3d;
   cursor: pointer;
   user-select: none;
-  background-color: #e5d4b6;
+  background-color: #e9dfcd;
 }
 
 .book .page:before {
@@ -137,7 +137,7 @@ p {
 0deg);
     right: 0;
     border-radius: 0 4px 4px 0;
-    background-image: linear-gradient(to right, rgb(181 164 139 / 90%) 0%, rgb(229 210 181 / 59%) 10%);
+    background-image: linear-gradient(to right, rgba(182, 172, 156, 0.9) 0%, rgba(226, 214, 197, 0.59) 10%);
 }
 .book .page:nth-child(odd):hover {
   transform: rotateY(-15deg);
