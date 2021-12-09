@@ -41,8 +41,7 @@ p{
   color: #000000;
 }
 .page {
-  width: 94vw;
-  height: 104vw;
+  width: 100%;
   background-color: #111111;
   float: left;
   margin-bottom: 0.5em;
