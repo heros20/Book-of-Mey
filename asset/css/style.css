@@ -74,6 +74,11 @@ p {
   font-size: 6.7px;
 }
 }
+@media only screen and (max-width: 1050px) {
+p {
+  font-size: 6.2px;
+}
+}
 .page {
   width: 100%;
   background-color: #111111;
