@@ -14,11 +14,14 @@ h2{
   position: absolute;
   top: 95%;
   right: 50%;
+  transform: translate(50%); /* décalage de 50% de sa propre taille */
 }
 .number_Page p{
   color: rgb(0, 0, 0);
 }
-
+.m-1{
+  margin-left: 50px;
+}
 .flexslider {
 	border: none;
 	background-color: rgba(117, 190, 218, 0.0);
