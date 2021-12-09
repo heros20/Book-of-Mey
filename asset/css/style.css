@@ -129,7 +129,6 @@ p {
   background: rgba(0, 0, 0, 0);
   transition: background 0.7s;
   z-index: 2;
-  border-radius: 7%;
 }
 .book .page:nth-child(odd) {
     pointer-events: all;
