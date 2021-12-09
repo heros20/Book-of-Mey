@@ -60,24 +60,24 @@ p {
   }
 }
 @media only screen and (max-width: 1282px) {
-p {
-  font-size: 9px;
-}
+  p {
+    font-size: 8.5px;
+  }
 }
 @media only screen and (max-width: 1200px) {
-p {
-  font-size: 8px;
-}
-}
-@media only screen and (max-width: 1050px) {
-p {
-  font-size: 6.7px;
-}
+  p {
+    font-size: 8px;
+  }
 }
 @media only screen and (max-width: 1050px) {
-p {
-  font-size: 6.2px;
+  p {
+    font-size: 6.7px;
+  }
 }
+@media only screen and (max-width: 1025px) {
+  p {
+    font-size: 6.2px;
+  }
 }
 .page {
   width: 100%;
@@ -290,6 +290,12 @@ p{
 
 
 
-
+@media only screen and (max-width: 1200px) {
+ 
+  #carta .box_Img_b{
+    top: 72%; left: 50%; /* à 50%/50% du parent référent */
+    transform: translate(-50%); /* décalage de 50% de sa propre taille */
+}
+}
 
 
