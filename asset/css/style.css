@@ -116,8 +116,9 @@ p {
   transform-style: preserve-3d;
   cursor: pointer;
   user-select: none;
-  background-color: #f0f0f0;
+  background-color: #e5d4b6;
 }
+
 .book .page:before {
   content: '';
   position: absolute;
@@ -131,11 +132,12 @@ p {
   border-radius: 7%;
 }
 .book .page:nth-child(odd) {
-  pointer-events: all;
-  transform: rotateY(0deg);
-  right: 0;
-  border-radius: 0 4px 4px 0;
-  background-image: linear-gradient(to right, rgba(0,0,0,.15) 0%, rgba(0,0,0,0) 10%);
+    pointer-events: all;
+    transform: rotateY(
+0deg);
+    right: 0;
+    border-radius: 0 4px 4px 0;
+    background-image: linear-gradient(to right, rgb(181 164 139 / 90%) 0%, rgb(229 210 181 / 59%) 10%);
 }
 .book .page:nth-child(odd):hover {
   transform: rotateY(-15deg);
