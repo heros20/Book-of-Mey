@@ -11,6 +11,12 @@
 //       animation: "slide" 
 //     });
 //   });
+$(function(){
+  var $select = $(".1-100");
+  for (i=1;i<=100;i++){
+      $select.append($('<option></option>').val(i).html(i))
+  }
+});
     var pages = document.getElementsByClassName('page');
   for(var i = 0; i < pages.length; i++)
     {
@@ -39,5 +45,18 @@
                 this.nextElementSibling.classList.add('flipped');
               }
            }
-        }
+        pages[i].onmousewheel=function()
+          {
+            if (this.pageNum % 2 === 0)
+              {
+                this.classList.remove('flipped');
+                this.previousElementSibling.classList.remove('flipped');
+              }
+            else
+              {
+                this.classList.add('flipped');
+                this.nextElementSibling.classList.add('flipped');
+              }
+           }
+      }
   })
