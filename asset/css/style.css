@@ -37,21 +37,33 @@ p{
   color: #000000;
 }
 @media only screen and (max-width: 1900px) {
-p {
-  font-size: 0.9em;
-}
+ html{
+    zoom: 105%;
+  }
+  p {
+    font-size: 0.9em;
+  }
 }
 @media only screen and (max-width: 1726px) {
+  html{
+    zoom: 115%;
+  }
 p {
   font-size: 0.8em;
 }
 }
 @media only screen and (max-width: 1585px) {
+   html{
+    zoom: 125%;
+  }
 p {
   font-size: 11.7px;
 }
 }
 @media only screen and (max-width: 1455px) {
+   html{
+    zoom: 135%;
+  }
   p {
     font-size: 11px;
   }
@@ -63,11 +75,17 @@ p {
   }
 }
 @media only screen and (max-width: 1282px) {
+  html{
+    zoom: 170%;
+  }
   p {
     font-size: 8.5px;
   }
 }
 @media only screen and (max-width: 1200px) {
+   html{
+    zoom: 180%;
+  }
   p {
     font-size: 8px;
   }
@@ -129,6 +147,7 @@ p {
   bottom: 0;
   left: 0;
   right: 0;
+  width: 40vw;
   background: rgba(0, 0, 0, 0);
   transition: background 0.7s;
   z-index: 2;
@@ -193,8 +212,9 @@ p {
 html,
 body {
   font-family:'Times New Roman', Times, serif;
-  background: #333;
+  background: rgb(22, 21, 21);
   -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  
 }
 html {
   height: 100%;
@@ -205,7 +225,6 @@ body {
   justify-content: center;
   align-items: center;
   padding: 2em 0;
-  /* line-height: 1.5em; */
 }
 .page:nth-child(odd){
   background-position: right top;
@@ -301,5 +320,23 @@ p{
     transform: translate(-50%); /* décalage de 50% de sa propre taille */
 }
 }
-
+@media only screen and (max-width: 1050px) {
+  html{
+    zoom: 100%;
+  }
+  body{
+    display: block;
+  }
+  .flex-control-nav{
+    display: flex;
+    justify-content: center;
+  }
+  .page{
+    background: rgb(228, 224, 212);
+    min-height: 58vw;
+  }
+  .page p{
+    font-size: 2vh;
+  }
+}
 
