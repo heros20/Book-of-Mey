@@ -312,7 +312,9 @@ p{
 
 
 
-
+.flexslider{
+  display: none;
+}
 @media only screen and (max-width: 1200px) {
  
   #carta .box_Img_b{
@@ -321,6 +323,12 @@ p{
 }
 }
 @media only screen and (max-width: 1050px) {
+  .book{
+    display: none;
+  }
+  .flexslider{
+    display: block;
+  }
   html{
     zoom: 100%;
   }
