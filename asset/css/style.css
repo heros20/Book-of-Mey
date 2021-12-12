@@ -84,7 +84,7 @@ p {
 }
 @media only screen and (max-width: 1200px) {
    html{
-    zoom: 180%;
+    zoom: 175%;
   }
   p {
     font-size: 8px;
