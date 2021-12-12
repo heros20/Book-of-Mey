@@ -274,7 +274,7 @@ img:hover{
   filter: invert(100%);
 }
 p{
-  text-align: justify;
+  /* text-align: justify; */
 }
 
 .boton{
