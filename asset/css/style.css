@@ -312,9 +312,7 @@ p{
 
 
 
-.flexslider{
-  display: none;
-}
+
 @media only screen and (max-width: 1200px) {
  
   #carta .box_Img_b{
@@ -322,11 +320,19 @@ p{
     transform: translate(-50%); /* décalage de 50% de sa propre taille */
 }
 }
+@media only screen and (min-width: 1051px) {
+  .FS{
+    display: none;
+  }
+  .book{
+    display: block;
+  }
+}
 @media only screen and (max-width: 1050px) {
   .book{
     display: none;
   }
-  .flexslider{
+  .FS{
     display: block;
   }
   html{
