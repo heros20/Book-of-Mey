@@ -354,7 +354,11 @@ p{
     font-size: 2vh;
   }
   .number_Page{
-    top: 93%;
+    position: static;
+    transform: none;
+  }
+  .number_Page p {
+    text-align: center;
   }
 }
 
