@@ -346,11 +346,15 @@ p{
     justify-content: center;
   }
   .page{
+    position: relative;
     background: rgb(228, 224, 212);
     min-height: 58vw;
   }
   .page p{
     font-size: 2vh;
+  }
+  .number_Page{
+    top: 93%;
   }
 }
 
