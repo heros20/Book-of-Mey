@@ -90,12 +90,28 @@ p {
     font-size: 8px;
   }
 }
-@media only screen and (max-width: 1050px) {
+@media only screen and (max-width: 1153px) {
+  p {
+    font-size: 7.4px;
+  }
+  
+}
+@media only screen and (max-width: 1117px) {
+  p {
+    font-size: 7px;
+  }
+}
+@media only screen and (max-width: 1077px) {
   p {
     font-size: 6.7px;
   }
 }
-@media only screen and (max-width: 1025px) {
+@media only screen and (max-width: 1001px) {
+  p {
+    font-size: 6.4px;
+  }
+}
+@media only screen and (max-width: 969px) {
   p {
     font-size: 6.2px;
   }
@@ -320,7 +336,7 @@ p{
     transform: translate(-50%); /* décalage de 50% de sa propre taille */
 }
 }
-@media only screen and (min-width: 1051px) {
+@media only screen and (min-width: 951px) {
   .FS{
     display: none;
   }
@@ -328,7 +344,7 @@ p{
     display: block;
   }
 }
-@media only screen and (max-width: 1050px) {
+@media only screen and (max-width: 950px) {
   .book{
     display: none;
   }
