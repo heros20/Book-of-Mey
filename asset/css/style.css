@@ -444,3 +444,115 @@ p{
     text-align: center;
   }
 }
+
+
+/* menu bar */
+
+.menu_icon {
+  display: inline-block;
+  cursor: pointer;
+  float: right;
+  position: absolute;
+  z-index: 9;
+  top: 15px;
+  right: 25px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 11px 12px;
+}
+
+.bar1, .bar2, .bar3 {
+  width: 30px;
+  height: 2px;
+  background-color: #fff;
+  margin: 5px 0;
+  transition: 0.4s;
+}
+
+.change .bar1 {
+  -webkit-transform: rotate(-45deg) translate(-4px, 4px);
+  transform: rotate(-45deg) translate(-4px, 4px);
+}
+
+.change .bar2 {
+  opacity: 0;
+}
+
+.change .bar3 {
+  -webkit-transform: rotate(45deg) translate(-6px, -5px);
+  transform: rotate(45deg) translate(-6px, -5px);
+}
+
+/********Menu style *******/
+.main_menu {
+  background: rgba(0, 0, 0, 0.6);
+  padding: 15px 15px;
+  z-index: 10;
+  text-align: center;
+  margin: 0 10% 0 5%;
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 15px;
+}
+
+.main_menu.active {
+  display: block;
+  /*top: 15px;*/
+  -webkit-animation: mainMenu 1s; /* Safari 4.0 - 8.0 */
+  animation: mainMenu 1s ;
+}
+/* Safari 4.0 - 8.0 */
+@-webkit-keyframes mainMenu {
+  0% {
+      opacity: 0;
+      top:35px;
+  }
+  10% {
+      display: block;
+  }
+  100% {
+      opacity: 1;
+      top:15px;
+  }
+}
+
+/* Standard syntax */
+@keyframes mainMenu {
+  0% {
+      opacity: 0;
+      top:35px;
+  }
+  10% {
+      display: block;
+  }
+  100% {
+      opacity: 1;
+      top:15px;
+  }
+}
+.main_menu ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.main_menu ul li {
+  display: inline-block;
+  padding: 0 10px;
+}
+
+.main_menu ul li a {
+  color: #fff;
+  text-decoration: none;
+  font-size: 16px;
+  text-transform: uppercase;
+}
+.main_menu ul{
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.main_menu ul li{
+  margin: 4px;
+}

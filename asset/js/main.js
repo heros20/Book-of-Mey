@@ -16,9 +16,14 @@ $(window).on("load", function () {
 $(function(){
   var $select = $(".1-100");
   for (i=1;i<=100;i++){
-      $select.append($('<option></option>').val(i).html(i))
+      $select.append($('<li></li>').val(i).html('<a href="#page'+ i +'">Page '+ i +'</a>'))
   }
 });
+
+function myFunction(x) {
+  x.classList.toggle("change");            document.getElementById("menu").classList.toggle("active");
+}
+
     var pages = document.getElementsByClassName('page');
   for(var i = 0; i < pages.length; i++)
     {
