@@ -6,11 +6,13 @@
 // 		page.style.filter = "none";
 // 	}
 // };
-// $(window).on("load", function () {
-//     $(".flexslider").flexslider({
-//       animation: "slide" 
-//     });
-//   });
+
+$(window).on("load", function () {
+    $(".flexslider").flexslider({
+      animation: "slide" 
+    });
+  });
+
 $(function(){
   var $select = $(".1-100");
   for (i=1;i<=100;i++){
