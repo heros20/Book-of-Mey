@@ -479,17 +479,17 @@ p{
 }
 
 .change .bar1 {
-  -webkit-transform: rotate(-45deg) translate(-4px, 4px);
-  transform: rotate(-45deg) translate(-4px, 4px);
+  -webkit-transform: rotate(-180deg);
+  transform: rotate(-180deg);
 }
 
 .change .bar2 {
-  opacity: 0;
+  /* opacity: 0; */
 }
 
 .change .bar3 {
-  -webkit-transform: rotate(45deg) translate(-6px, -5px);
-  transform: rotate(45deg) translate(-6px, -5px);
+  -webkit-transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 
 /********Menu style *******/
