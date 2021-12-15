@@ -16,7 +16,7 @@ $(window).on("load", function () {
 $(function(){
   var $select = $(".1-100");
   for (i=1;i<=47;i++){
-      $select.append($('<li></li>').val(i).html('<a href="#page'+ i +'">Page '+ i +'</a>'))
+      $select.append($('<li></li>').val(i).html('<a onclick="myFunction(this)" href="#page'+ i +'">Page '+ i +'</a>'))
   }
 });
 

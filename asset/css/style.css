@@ -4,6 +4,15 @@
 * Autoprefixer: v10.3.1
 * Browsers: last 4 version
 */
+html {
+	scroll-behavior: smooth;
+}
+
+@media screen and (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+}
 
 h1,h2,.m-1{
     text-align: center;
@@ -453,7 +462,8 @@ p{
   cursor: pointer;
   float: right;
   position: absolute;
-  z-index: 9;
+  position: fixed;
+  z-index: 1000;
   top: 15px;
   right: 25px;
   background: rgba(0, 0, 0, 0.6);
@@ -486,21 +496,19 @@ p{
 .main_menu {
   background: rgba(0, 0, 0, 0.6);
   padding: 15px 15px;
-  z-index: 10;
+  z-index: 999;
   text-align: center;
   margin: 0 10% 0 5%;
   display: none;
   position: absolute;
+  position: fixed;
   left: 0;
   right: 0;
-  top: 15px;
+  top: 75px;
 }
 
 .main_menu.active {
   display: block;
-  /*top: 15px;*/
-  -webkit-animation: mainMenu 1s; /* Safari 4.0 - 8.0 */
-  animation: mainMenu 1s ;
 }
 /* Safari 4.0 - 8.0 */
 @-webkit-keyframes mainMenu {
