@@ -463,7 +463,7 @@ p{
     float: right;
     position: absolute;
     position: fixed;
-    z-index: 1000;
+    z-index: 10001;
     top: 5px;
     right: 15px;
     background: rgba(0, 0, 0, 0.6);

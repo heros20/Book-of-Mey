@@ -10,6 +10,7 @@ $(window).on("load", function () {
 
 $(function(){
   var $select = $(".1-100");
+  $select.append($('<li></li>').val(0).html('<a onclick="myFunction(this)" href="#marque_Page">Marque-page</a>'))
   for (i=1;i<=47;i++){
       $select.append($('<li></li>').val(i).html('<a onclick="myFunction(this)" href="#page'+ i +'">Page '+ i +'</a>'))
   }
