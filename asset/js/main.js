@@ -66,7 +66,6 @@ function myFunction(x) {
 
   $(function() {
     $('.bookmarkss').click(function(event) {
-      event.stopPropagation()
       const index = $(this).data("index");
       const isActive = $(this).hasClass('actived');
       $('.bookmarkss').removeClass('actived');
@@ -76,6 +75,7 @@ function myFunction(x) {
          $('*[data-index="' + index + '"]').addClass('actived');
          localStorage.setItem('bookmark_id', index);
        }
+       event.stopPropagation()
     });
 });
 
