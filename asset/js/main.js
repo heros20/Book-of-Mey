@@ -1,7 +1,7 @@
 $(window).on("load", function () {
     const bookmark_id = localStorage.getItem('bookmark_id') || -1;
     $('.first-P').before((index) => '<div data-index="' + index + '" class="bookmarkss"></div>');
-    console.log(bookmark_id, $('*[data-index="' + bookmark_id + '"]'))
+    // console.log(bookmark_id, $('*[data-index="' + bookmark_id + '"]'))
     if (bookmark_id >= 0) {
       $('*[data-index="' + bookmark_id + '"]').addClass('actived');
       $('*[data-index="' + bookmark_id + '"]').attr('id', 'marque_Page');
