@@ -1,16 +1,11 @@
-// window.onload = function () {
-// 	const main = document.getElementsByClassName("main")[0];
-// 	const page = document.getElementsByClassName("page")[0];
-
-// 	if (main.offsetHeight < 1300) {
-// 		page.style.filter = "none";
-// 	}
-// };
-
 $(window).on("load", function () {
-    $(".flexslider").flexslider({
-      animation: "slide" 
-    });
+    const bookmark_id = localStorage.getItem('bookmark_id') || -1;
+    $('.first-P').before((index) => '<div data-index="' + index + '" class="bookmarkss"></div>');
+    console.log(bookmark_id, $('*[data-index="' + bookmark_id + '"]'))
+    if (bookmark_id >= 0) {
+      $('*[data-index="' + bookmark_id + '"]').addClass('actived');
+      $('*[data-index="' + bookmark_id + '"]').attr('id', 'marque_Page');
+    }
   });
 
 $(function(){
@@ -24,7 +19,7 @@ function myFunction(x) {
   x.classList.toggle("change");            document.getElementById("menu").classList.toggle("active");
 }
 
-    var pages = document.getElementsByClassName('page');
+  var pages = document.getElementsByClassName('page');
   for(var i = 0; i < pages.length; i++)
     {
       var page = pages[i];
@@ -67,3 +62,22 @@ function myFunction(x) {
            }
       }
   })
+
+  $(function() {
+    $('.bookmarkss').click(function(event) {
+      event.stopPropagation()
+      const index = $(this).data("index");
+      const isActive = $(this).hasClass('actived');
+      $('.bookmarkss').removeClass('actived');
+       if (isActive) {
+        localStorage.removeItem('bookmark_id');
+       } else {
+         $('*[data-index="' + index + '"]').addClass('actived');
+         localStorage.setItem('bookmark_id', index);
+       }
+    });
+});
+
+
+
+

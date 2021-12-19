@@ -1,105 +1,57 @@
-// old paper effect - https://stackoverflow.com/questions/14585101/old-paper-background-texture-with-just-css https://tympanus.net/codrops/2019/02/19/svg-filter-effects-creating-texture-with-feturbulence/
+.bookmark {
+  --width: 40px;
+  --height: calc(var(--width) * 1.5);
+  --border-color: black;
+  --fill-color: #ff4141;
+  position: relative;
+  width: var(--width);
+  height: var(--height);
+  transform-style: preserve-3d;
+  cursor: pointer;
 
-@import url("https://fonts.googleapis.com/css2?family=Estonia&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Libre+Baskerville&display=swap");
+  &__toogle {
+    position: absolute;
+    opacity: 0;
 
-* {
-	margin: 0;
-	padding: 0;
+    &:checked ~ .bookmark__fill {
+      transform: translateX(0);
+    }
+  }
 
-	font-family: inherit;
-}
-
-body {
-	background-color: #1b1b1b;
-	background-image: url("data:image/svg+xml,%3Csvg width='80' height='88' viewBox='0 0 80 88' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M22 21.91V26h-2c-9.94 0-18 8.06-18 18 0 9.943 8.058 18 18 18h2v4.09c8.012.722 14.785 5.738 18 12.73 3.212-6.99 9.983-12.008 18-12.73V62h2c9.94 0 18-8.06 18-18 0-9.943-8.058-18-18-18h-2v-4.09c-8.012-.722-14.785-5.738-18-12.73-3.212 6.99-9.983 12.008-18 12.73zM54 58v4.696c-5.574 1.316-10.455 4.428-14 8.69-3.545-4.262-8.426-7.374-14-8.69V58h-5.993C12.27 58 6 51.734 6 44c0-7.732 6.275-14 14.007-14H26v-4.696c5.574-1.316 10.455-4.428 14-8.69 3.545 4.262 8.426 7.374 14 8.69V30h5.993C67.73 30 74 36.266 74 44c0 7.732-6.275 14-14.007 14H54zM42 88c0-9.94 8.06-18 18-18h2v-4.09c8.016-.722 14.787-5.738 18-12.73v7.434c-3.545 4.262-8.426 7.374-14 8.69V74h-5.993C52.275 74 46 80.268 46 88h-4zm-4 0c0-9.943-8.058-18-18-18h-2v-4.09c-8.012-.722-14.785-5.738-18-12.73v7.434c3.545 4.262 8.426 7.374 14 8.69V74h5.993C27.73 74 34 80.266 34 88h4zm4-88c0 9.943 8.058 18 18 18h2v4.09c8.012.722 14.785 5.738 18 12.73v-7.434c-3.545-4.262-8.426-7.374-14-8.69V14h-5.993C52.27 14 46 7.734 46 0h-4zM0 34.82c3.213-6.992 9.984-12.008 18-12.73V18h2c9.94 0 18-8.06 18-18h-4c0 7.732-6.275 14-14.007 14H14v4.696c-5.574 1.316-10.455 4.428-14 8.69v7.433z' fill='%23126cbc' fill-opacity='0.4' fill-rule='evenodd'/%3E%3C/svg%3E");
-	position: relative;
-	width: 100%;
-	height: auto;
-}
-
-.page {
-    display: flex;
+  &__stroke {
+    position: absolute;
+    box-sizing: border-box;
     width: 100%;
-    // min-height: calc((1vw + 1vh) * 75);
-    flex-direction: column;
-    box-shadow: 2px 3px 20px black, 0 0 60px #8a4d0f inset;
-    background: #fffef0;
-}
-.firstPage {
-	display: flex;
+    height: 100%;
+    border: 4px solid var(--border-color);
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
+    clip-path: polygon(0 0, 100% 0%, 100% 100%, 50% 73%, 0 100%);
+
+    &::before {
+      position: absolute;
+      content: "";
+      left: 50%;
+      bottom: -37%;
+      box-sizing: border-box;
+      width: calc(var(--width) / 1.5);
+      height: calc(var(--width) / 1.5);
+      border: 4px solid var(--border-color);
+      border-bottom: 0;
+      border-right: 0;
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+  }
+
+  &__fill {
+    position: absolute;
     width: 100%;
-    min-height: calc((1vw + 1vh) * 75);
-    flex-direction: column;
-    box-shadow: 2px 3px 20px black, 0 0 60px #8a4d0f inset;
-    background: #fffef0;
+    height: 100%;
+    background: var(--fill-color);
+    border-radius: 10px 10px 0 0;
+    clip-path: polygon(0 0, 100% 0%, 100% 100%, 50% 73%, 0 100%);
+    transform: perspective(150px) rotateX(90deg);
+    transform-origin: center top;
+    transition: 0.6s cubic-bezier(0.77, 0, 0.175, 1);
+  }
 }
-svg {
-	display: block;
-	width: 0%;
-	margin-top: 1em;
-}
-
-.head_1 {
-	display: flex;
-	justify-content: space-around;
-	align-items: center;
-	flex-direction: column;
-	width: 100%;
-
-	h1 {
-		display: inline;
-		font-family: "Estonia", cursive;
-		font-size: 6em;
-		margin: 0.2em;
-		font-weight: 800;
-		align-self: center;
-	}
-
-	h2 {
-		display: inline;
-		font-family: "Estonia", cursive;
-		font-size: 3em;
-		font-weight: 600;
-		margin: 0.5em;
-		align-self: center;
-	}
-}
-
-.head_2 {
-	h3 {
-		font-family: "Estonia", cursive;
-		font-size: 2em;
-		margin: 1em;
-		font-weight: 600;
-	}
-}
-
-.main {
-	margin: 2em;
-	p {
-		font-family: "Libre Baskerville", serif;
-		font-size: 1em;
-		margin: 1em;
-	}
-
-	.secondp {
-		margin-top: 3em;
-	}
-
-	span {
-		color: rgb(38, 38, 38);
-		float: left;
-
-		line-height: 85%;
-
-		font-size: 400%;
-
-		font-family: georgia;
-	}
-}
-
-
-
-
-
