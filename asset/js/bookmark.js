@@ -4,7 +4,7 @@ $(window).on("load", function () {
 
     if (bookmark_id >= 0) {
       $('*[data-index="' + bookmark_id + '"]').addClass('actived');
-      $('*[data-index="' + bookmark_id + '"]').attr('id', 'marque_Page');
+      $('*[data-index="' + bookmark_id + '"]').attr('id', 'marque_page');
     }
 
     // $.each($('.page'), function (index, item) {
@@ -32,8 +32,8 @@ $(function() {
 });
 $(function(){
   var $select = $(".1-100");
-  $select.append($('<li></li>').val(0).html('<a onclick="myFunction(this)" href="#marque_Page" style="color:red;">Marque-page</a>'))
-  for (i=1;i<=47;i++){
+  $select.append($('<li></li>').val(0).html('<a onclick="myFunction(this)" href="#marque_page" style="color:red;">Marque-page</a>'))
+  for (i=1;i<=68;i++){
       $select.append($('<li></li>').val(i).html('<a onclick="myFunction(this)" href="#page'+ i +'">Page '+ i +'</a>'))
   }
 });

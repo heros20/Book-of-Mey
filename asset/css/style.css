@@ -564,19 +564,14 @@ p{
 .bookmarkss{
   z-index: 10000;
   background: rgb(216, 202, 181);
-  background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgb(255, 255, 255)), color-stop(100%,rgb(255, 255, 255)));
-  background-image: -webkit-linear-gradient(top, rgb(255, 255, 255) 0%, rgb(243, 243, 243) 100%);
-  background-image: -moz-linear-gradient(top, rgb(255, 255, 255) 0%, rgb(255, 255, 255) 100%);
-  background-image: -o-linear-gradient(top, rgb(255, 255, 255) 0%, rgb(255, 255, 255) 100%);
-  background-image: -ms-linear-gradient(top, rgb(255, rgb(255, 255, 255) 255) 0%, rgb(255, 255, 255) 100%);
   filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b00', endColorstr='#900',GradientType=0 );
   background-image: -webkit-gradient(linear, left top, right top, from(rgba(180, 173, 161, 0.9)), color-stop(10%, rgba(223, 215, 204, 0.59)));
     background-image: -o-linear-gradient(left, rgba(180, 173, 161, 0.9) 0%, rgba(223, 215, 204, 0.59) 10%);
     background-image: linear-gradient(to right, rgba(180, 173, 161, 0.9) 0%, rgba(223, 215, 204, 0.59) 10%);
   height:30px;
-  position:absolute;top:0;right:0;
-  width: 10px;
-  height: 100%;
+  position:absolute;top:0;right:10px;
+  width: 14px;
+  height: 85%;
   
 }
 
@@ -590,4 +585,11 @@ p{
   filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b00', endColorstr='#900',GradientType=0 );
   background-image: linear-gradient(top, #b00 0%, #900 100%);
 }
-.actived:after{content:'';display:block;border:10px solid transparent;border-bottom-color:#eee;position:absolute;bottom:0;}
+.actived:after {
+    content: '';
+    display: block;
+    border: 7px solid transparent;
+    border-bottom-color: rgba(228, 225, 220, 0.9);
+    position: absolute;
+    bottom: 0;
+}
