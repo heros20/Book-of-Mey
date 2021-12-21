@@ -48,7 +48,7 @@ h2{
 p{
   /* text-align: center; */
   margin: 10px 40px;
-  font-size: 1rem;
+  font-size: 0.8vw;
   color: #000000;
 }
 @media only screen and (max-width: 1900px) {
@@ -56,7 +56,7 @@ p{
     zoom: 105%;
   }
   p {
-    font-size: 0.9em;
+    /* font-size: 0.9em; */
   }
 }
 @media only screen and (max-width: 1726px) {
@@ -64,7 +64,7 @@ p{
     zoom: 115%;
   }
 p {
-  font-size: 0.8em;
+  /* font-size: 0.8em; */
 }
 }
 @media only screen and (max-width: 1585px) {
@@ -72,7 +72,7 @@ p {
     zoom: 125%;
   }
 p {
-  font-size: 11.7px;
+  font-size: 0.7vw;
 }
 }
 @media only screen and (max-width: 1455px) {
@@ -80,7 +80,7 @@ p {
     zoom: 135%;
   }
   p {
-    font-size: 11px;
+    /* font-size: 11px; */
   }
   .number_Page {
     top: 93%;
@@ -89,12 +89,17 @@ p {
     width: 100%;
   }
 }
-@media only screen and (max-width: 1282px) {
+@media only screen and (max-width: 1270px) {
   html{
     zoom: 170%;
   }
   p {
-    font-size: 8.5px;
+    font-size: 0.6vw;
+  }
+}
+@media only screen and (max-width: 1102px) {
+  p {
+    font-size: 6.3px;
   }
 }
 @media only screen and (max-width: 1200px) {
@@ -102,33 +107,33 @@ p {
     zoom: 175%;
   }
   p {
-    font-size: 8px;
+    /* font-size: 8px; */
   }
 }
 @media only screen and (max-width: 1153px) {
   p {
-    font-size: 7.4px;
+    /* font-size: 7.4px; */
   }
   
 }
 @media only screen and (max-width: 1117px) {
   p {
-    font-size: 7px;
+    /* font-size: 7px; */
   }
 }
 @media only screen and (max-width: 1077px) {
   p {
-    font-size: 6.7px;
+    /* font-size: 6.7px; */
   }
 }
-@media only screen and (max-width: 1001px) {
+@media only screen and (max-width: 1002px) {
   p {
-    font-size: 6.4px;
+    font-size: 5px;
   }
 }
 @media only screen and (max-width: 969px) {
   p {
-    font-size: 6.2px;
+    /* font-size: 6.2px; */
   }
 }
 .page {
@@ -492,7 +497,7 @@ p{
 .main_menu {
   background: rgba(0, 0, 0, 0.6);
   padding: 15px 15px;
-  z-index: 999;
+  z-index: 20000;
   text-align: center;
   margin: 0 10% 0 5%;
   display: none;
@@ -549,7 +554,7 @@ p{
 .main_menu ul li a {
   color: #fff;
   text-decoration: none;
-  font-size: 16px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 .main_menu ul{
@@ -564,32 +569,12 @@ p{
 .bookmarkss{
   z-index: 10000;
   background: rgb(216, 202, 181);
-  filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b00', endColorstr='#900',GradientType=0 );
-  background-image: -webkit-gradient(linear, left top, right top, from(rgba(180, 173, 161, 0.9)), color-stop(10%, rgba(223, 215, 204, 0.59)));
-    background-image: -o-linear-gradient(left, rgba(180, 173, 161, 0.9) 0%, rgba(223, 215, 204, 0.59) 10%);
-    background-image: linear-gradient(to right, rgba(180, 173, 161, 0.9) 0%, rgba(223, 215, 204, 0.59) 10%);
   height:30px;
-  position:absolute;top:0;right:10px;
-  width: 14px;
-  height: 85%;
-  
+  position:absolute;top:0;right:0;left: 2.5%;
+  width: 95%;
+  height: 18px;
 }
 
 .actived{
   background: #b00;
-  background-image: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#b00), color-stop(100%,#900));
-  background-image: -webkit-linear-gradient(top, #b00 0%, #900 100%);
-  background-image: -moz-linear-gradient(top, #b00 0%, #900 100%);
-  background-image: -o-linear-gradient(top, #b00 0%, #900 100%);
-  background-image: -ms-linear-gradient(top, #b00 0%, #b00 100%);
-  filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b00', endColorstr='#900',GradientType=0 );
-  background-image: linear-gradient(top, #b00 0%, #900 100%);
-}
-.actived:after {
-    content: '';
-    display: block;
-    border: 7px solid transparent;
-    border-bottom-color: rgba(228, 225, 220, 0.9);
-    position: absolute;
-    bottom: 0;
 }
