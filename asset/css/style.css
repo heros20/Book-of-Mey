@@ -40,11 +40,6 @@ h2{
 .m-1{
   margin-left: 50px;
 }
-.flexslider {
-	border: none;
-	background-color: rgba(117, 190, 218, 0.0);
-	margin: 0 300px;
-}
 .book {
   -webkit-transition: opacity 0.4s 0.2s;
   -o-transition: opacity 0.4s 0.2s;
@@ -576,10 +571,12 @@ p{
   background-image: -ms-linear-gradient(top, rgb(255, rgb(255, 255, 255) 255) 0%, rgb(255, 255, 255) 100%);
   filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b00', endColorstr='#900',GradientType=0 );
   background-image: -webkit-gradient(linear, left top, right top, from(rgba(180, 173, 161, 0.9)), color-stop(10%, rgba(223, 215, 204, 0.59)));
-  
+    background-image: -o-linear-gradient(left, rgba(180, 173, 161, 0.9) 0%, rgba(223, 215, 204, 0.59) 10%);
+    background-image: linear-gradient(to right, rgba(180, 173, 161, 0.9) 0%, rgba(223, 215, 204, 0.59) 10%);
   height:30px;
-  position:absolute;top:0;right:20px;
-  width:20px;
+  position:absolute;top:0;right:0;
+  width: 10px;
+  height: 100%;
   
 }
 
