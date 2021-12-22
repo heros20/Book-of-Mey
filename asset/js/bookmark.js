@@ -22,12 +22,13 @@ $(function() {
     event.stopPropagation()
     const index = $(this).data("index");
     $(this).html('Marque-page');
+    $(this).append('<div class="dragon"> <img src="asset/image/ok.png" alt=""> </div>');
     const isActive = $(this).hasClass('actived');
     $('.bookmarkss').removeClass('actived');
-    
       if (isActive) {
       localStorage.removeItem('bookmark_id');
       $(this).html('');
+      $('.dragon').html('');
       } else {
         $('*[data-index="' + index + '"]').addClass('actived');
         localStorage.setItem('bookmark_id', index);

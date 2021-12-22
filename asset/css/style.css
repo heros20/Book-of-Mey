@@ -578,3 +578,13 @@ p{
 .actived{
   background: #b00;
 }
+.page{
+  position: relative;
+}
+.dragon {
+    position: absolute;
+}
+.dragon img{
+  width: 100%;
+  box-shadow: none;
+}
