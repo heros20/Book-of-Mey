@@ -36,6 +36,8 @@ $(function() {
       
   });
 });
+
+
 $(function(){
   var $select = $(".1-100");
   $select.append($('<li style="color:white" >Choisissez votre page</li>'));
