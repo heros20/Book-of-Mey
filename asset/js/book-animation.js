@@ -13,19 +13,19 @@
       {
         //Or var page = pages[i];
         pages[i].pageNum = i + 1;
-        // pages[i].onclick=function()
-        //   {
-        //     if (this.pageNum % 2 === 0)
-        //       {
-        //         this.classList.remove('flipped');
-        //         this.previousElementSibling.classList.remove('flipped');
-        //       }
-        //     else
-        //       {
-        //         this.classList.add('flipped');
-        //         this.nextElementSibling.classList.add('flipped');
-        //       }
-        //    }
+        pages[i].onclick=function()
+          {
+            if (this.pageNum % 2 === 0)
+              {
+                this.classList.remove('flipped');
+                this.previousElementSibling.classList.remove('flipped');
+              }
+            else
+              {
+                this.classList.add('flipped');
+                this.nextElementSibling.classList.add('flipped');
+              }
+           }
         pages[i].onmousewheel=function()
           {
             if (this.pageNum % 2 === 0)

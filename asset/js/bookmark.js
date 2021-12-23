@@ -18,7 +18,7 @@ $(window).on("load", function () {
 });
 
 $(function() {
-  $('.bookmarkss').mousedown(function(event) {
+  $('.bookmarkss').click(function(event) {
     event.stopPropagation()
     const index = $(this).data("index");
     $(this).html('Marque-page');
