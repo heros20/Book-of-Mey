@@ -28,7 +28,7 @@ h2{
 }
 .number_Page {
   position: absolute;
-  top: 95%;
+  top: 96%;
   right: 50%;
   -webkit-transform: translate(50%);
       -ms-transform: translate(50%);
@@ -78,12 +78,6 @@ p {
 @media only screen and (max-width: 1455px) {
    html{
     zoom: 135%;
-  }
-  p {
-    /* font-size: 11px; */
-  }
-  .number_Page {
-    top: 93%;
   }
   .book .pages{
     width: 100%;
@@ -407,52 +401,11 @@ p{
 }
 }
 @media only screen and (min-width: 951px) {
-  .FS{
-    display: none;
-  }
   .book{
     display: block;
   }
 }
-@media only screen and (max-width: 950px) {
-  .book{
-    display: none;
-  }
-  .FS{
-    display: block;
-  }
-  html{
-    zoom: 100%;
-  }
-  body{
-    display: block;
-  }
-  .flex-control-nav{
-    display: -webkit-box;
-    display: -ms-flexbox;
-    display: flex;
-    -webkit-box-pack: center;
-        -ms-flex-pack: center;
-            justify-content: center;
-  }
-  .page{
-    position: relative;
-    background: rgb(228, 224, 212);
-    min-height: 58vw;
-  }
-  .page p{
-    font-size: 2.5vh;
-  }
-  .number_Page{
-    position: static;
-    -webkit-transform: none;
-        -ms-transform: none;
-            transform: none;
-  }
-  .number_Page p {
-    text-align: center;
-  }
-}
+
 
 
 /* menu bar */
@@ -588,3 +541,131 @@ p{
   width: 100%;
   box-shadow: none;
 }
+
+
+@media only screen and (max-width: 950px) {
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed,
+figure, figcaption, footer, header, hgroup,
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 100%;
+    font: inherit;
+    vertical-align: baseline;
+}
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure,
+footer, header, hgroup, menu, nav, section {
+    display: block;
+}
+body {
+    line-height: 1;
+}
+ol, ul {
+    list-style: none;
+}
+blockquote, q {
+    quotes: none;
+}
+blockquote:before, blockquote:after,
+q:before, q:after {
+    content: '';
+    content: none;
+}
+table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+/* Pour des raisons de clarté le code ci-dessous n'est pas prefixer
+    il faudra le faire lors de la mise en production
+    https://autoprefixer.github.io/
+*/
+*,
+*:after,
+*:before {
+    -moz-box-sizing:border-box;
+    box-sizing:border-box;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+}
+/* clear */
+.clear:before,.clear:after { content:' '; display:table; }
+.clear:after { clear:both; }
+.clear { *zoom:1;}
+
+  html{
+    zoom: 100%;
+  }
+  .book{
+    width: 100%;
+  }
+  .page{
+    float: none;
+    margin-bottom: 0;
+    background: none;
+    background-size: none;
+  }
+  .book .pages{
+    width: 100%;
+    height: auto;
+  }
+  .book .page{
+    position: static;
+    width: 100%;
+    height: auto;
+  }
+  .book .page:before{
+    position: static;
+    width: 100%;
+    z-index: auto;
+  }
+  .book .page:nth-child(odd){
+    pointer-events: none;
+  }
+  .book .page:nth-child(odd):hover{
+    -webkit-transform: rotateY(0deg);
+    transform: rotateY(0deg);
+  }
+  .book .page:nth-child(even){
+    -webkit-transform: rotateY(0deg);
+    transform: rotateY(0deg);
+    -webkit-transform-origin: 0%;
+    -ms-transform-origin: 0% ;
+    transform-origin: 0% ;
+  }
+  .book .page.flipped:nth-child(odd){
+    -webkit-transform: rotateY(0deg);
+        transform: rotateY(0deg);
+  }
+  .book .page.flipped:nth-child(even){
+    pointer-events: none;
+  }
+  .book .page.flipped:nth-child(even):hover {
+    -webkit-transform: rotateY(0deg);
+            transform: rotateY(0deg);
+  }
+  .page{
+    width: 100%;
+    padding: 50px;
+    margin: -50px 0;
+  }
+  p{
+    font-size: 2vh;
+    margin: 5px 0;
+  }
+}
+
+
+
