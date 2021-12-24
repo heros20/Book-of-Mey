@@ -9,6 +9,7 @@
     }
 
   document.addEventListener('DOMContentLoaded', function(){
+    var audio = new Audio('asset/sound/audio_file.mp3');
     for(var i = 0; i < pages.length; i++)
       {
         //Or var page = pages[i];
@@ -17,11 +18,13 @@
           {
             if (this.pageNum % 2 === 0)
               {
+                audio.play()
                 this.classList.remove('flipped');
                 this.previousElementSibling.classList.remove('flipped');
               }
             else
               {
+                audio.play();
                 this.classList.add('flipped');
                 this.nextElementSibling.classList.add('flipped');
               }
@@ -30,11 +33,13 @@
           {
             if (this.pageNum % 2 === 0)
               {
+                audio.play()
                 this.classList.remove('flipped');
                 this.previousElementSibling.classList.remove('flipped');
               }
             else
               {
+                audio.play()
                 this.classList.add('flipped');
                 this.nextElementSibling.classList.add('flipped');
               }
