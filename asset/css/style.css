@@ -518,29 +518,10 @@ p{
 .main_menu ul li{
   margin: 4px;
 }
-
-.bookmarkss{
-  z-index: 10000;
-  background: rgb(216, 202, 181);
-  height:30px;
-  position:absolute;top:0;right:0;left: 2.5%;
-  width: 95%;
-  height: 18px;
-}
-
-.actived{
-  background: #b00;
-}
 .page{
   position: relative;
 }
-.dragon {
-    position: absolute;
-}
-.dragon img{
-  width: 100%;
-  box-shadow: none;
-}
+
 
 
 @media only screen and (max-width: 950px) {
@@ -660,12 +641,32 @@ table {
     width: 100%;
     padding: 50px;
     margin: -50px 0;
+    border: #000000 5px solid;
   }
   p{
     font-size: 2vh;
     margin: 5px 0;
   }
+  
 }
 
+.bookmarkss{
+  z-index: 10000;
+  background: rgb(216, 202, 181);
+  height:30px;
+  position:absolute;top:0;right:0;left: 2.5%;
+  width: 95%;
+  height: 18px;
+}
 
+.actived{
+  background: #b00;
+}
 
+.dragon {
+    position: absolute;
+}
+.dragon img{
+  width: 100%;
+  box-shadow: none;
+}
