@@ -350,16 +350,16 @@ p{
 
 
 
-
+/* 
 @media only screen and (max-width: 1200px) {
  
   .carta .box_Img_b{
-    top: 72%; left: 50%; /* à 50%/50% du parent référent */
+    top: 72%; left: 50%; 
     -webkit-transform: translate(-50%);
         -ms-transform: translate(-50%);
-            transform: translate(-50%); /* décalage de 50% de sa propre taille */
+            transform: translate(-50%);
 }
-}
+} */
 @media only screen and (min-width: 951px) {
   .book{
     display: block;
@@ -648,7 +648,7 @@ table {
 }
 .carta .box_Img_b{
  position: absolute;
-  top: 80%; left: 50%; /* à 50%/50% du parent référent */
+  top: 74%; left: 50%; /* à 50%/50% du parent référent */
   -webkit-transform: translate(-50%);
       -ms-transform: translate(-50%);
           transform: translate(-50%); /* décalage de 50% de sa propre taille */
