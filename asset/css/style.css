@@ -297,46 +297,6 @@ body {
   background-position: right top;
 }
 
-
-
-
-
-#carta {
-    margin: 0 auto;
-    font-size: 15px;
-    border-radius: 25px;
-    background-color: white;
-    -webkit-box-shadow: 5px 5px 40px black;
-            box-shadow: 5px 5px 40px black;
-    text-align: center;
-    width: 100%;
-    height: 100%;
-    position: relative;
-}
-#carta .box_Img{
-  position: absolute;
-  top: 3%; left: 50%; /* à 50%/50% du parent référent */
-  -webkit-transform: translate(-50%);
-      -ms-transform: translate(-50%);
-          transform: translate(-50%); /* décalage de 50% de sa propre taille */
-  color: white;
-  font-size: 2vh;
-}
-#carta .box_Img_b{
- position: absolute;
-  top: 80%; left: 50%; /* à 50%/50% du parent référent */
-  -webkit-transform: translate(-50%);
-      -ms-transform: translate(-50%);
-          transform: translate(-50%); /* décalage de 50% de sa propre taille */
-  color: white;
-}
-#carta .box_Img_b p{
-  font-size: 1.5vh;
-  color: white;
-}
-#carta img{
-  width: 100%;
-}
 img{
   -webkit-box-shadow: 5px 5px 4px gray;
           box-shadow: 5px 5px 4px gray;
@@ -393,7 +353,7 @@ p{
 
 @media only screen and (max-width: 1200px) {
  
-  #carta .box_Img_b{
+  .carta .box_Img_b{
     top: 72%; left: 50%; /* à 50%/50% du parent référent */
     -webkit-transform: translate(-50%);
         -ms-transform: translate(-50%);
@@ -647,7 +607,7 @@ table {
     font-size: 2vh;
     margin: 5px 0;
   }
-  
+ 
 }
 
 .bookmarkss{
@@ -669,4 +629,49 @@ table {
 .dragon img{
   width: 100%;
   box-shadow: none;
+}
+
+.carta{
+  padding: 0;
+}
+.carta img{
+  width: 100%;
+}
+.carta .box_Img{
+  position: absolute;
+  top: 3%; left: 50%; /* à 50%/50% du parent référent */
+  -webkit-transform: translate(-50%);
+      -ms-transform: translate(-50%);
+          transform: translate(-50%); /* décalage de 50% de sa propre taille */
+  color: white;
+  font-size: 2vh;
+}
+.carta .box_Img_b{
+ position: absolute;
+  top: 80%; left: 50%; /* à 50%/50% du parent référent */
+  -webkit-transform: translate(-50%);
+      -ms-transform: translate(-50%);
+          transform: translate(-50%); /* décalage de 50% de sa propre taille */
+  color: white;
+}
+.carta .box_Img_b p{
+  font-size: 1.5vh;
+  color: white;
+}
+.carta img{
+  width: 100%;
+}
+
+@media only screen and (max-width: 950px) {
+  .carta .box_Img{
+    top: 10%;
+    font-size: 4vw;
+    text-align: center;
+  }
+  .carta .box_Img h1{
+    margin-bottom: 20px;
+  }
+  .carta .box_Img_b{
+    font-size: 4vw;
+  }
 }
