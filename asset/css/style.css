@@ -154,6 +154,7 @@ p {
           backface-visibility: hidden;
   border-radius: 4px;
   /*box-shadow: 0 0 0 1px #e3dfd8;*/
+  /* pointer-events:none; */
 }
 .book .page {
   float: none;
@@ -611,7 +612,7 @@ table {
 }
 
 .bookmarkss{
-  z-index: 10000;
+  z-index: 100000;
   background: rgb(216, 202, 181);
   height:30px;
   position:absolute;top:0;right:0;left: 2.5%;
