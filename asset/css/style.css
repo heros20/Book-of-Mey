@@ -487,7 +487,7 @@ p{
 
 @media only screen and (max-width: 950px) {
 
-html, body, div, span, applet, object, iframe,
+/* html, body, div, span, applet, object, iframe,
 h1, h2, h3, h4, h5, h6, p, blockquote, pre,
 a, abbr, acronym, address, big, cite, code,
 del, dfn, em, img, ins, kbd, q, s, samp,
@@ -506,17 +506,11 @@ time, mark, audio, video {
     font-size: 100%;
     font: inherit;
     vertical-align: baseline;
-}
+} */
 /* HTML5 display-role reset for older browsers */
 article, aside, details, figcaption, figure,
 footer, header, hgroup, menu, nav, section {
     display: block;
-}
-body {
-    line-height: 1;
-}
-ol, ul {
-    list-style: none;
 }
 blockquote, q {
     quotes: none;
@@ -534,24 +528,13 @@ table {
     il faudra le faire lors de la mise en production
     https://autoprefixer.github.io/
 */
-*,
-*:after,
-*:before {
-    -moz-box-sizing:border-box;
-    box-sizing:border-box;
-    -webkit-font-smoothing:antialiased;
-    text-rendering:optimizeLegibility;
-}
-/* clear */
-.clear:before,.clear:after { content:' '; display:table; }
-.clear:after { clear:both; }
-.clear { *zoom:1;}
+  h2{
+    margin-top: -40px;
+    margin-bottom: 50px;
+  }
 
   html{
     zoom: 100%;
-  }
-  .book{
-    width: 100%;
   }
   .page{
     float: none;
@@ -573,9 +556,6 @@ table {
     width: 100%;
     z-index: auto;
   }
-  .book .page:nth-child(odd){
-    pointer-events: none;
-  }
   .book .page:nth-child(odd):hover{
     -webkit-transform: rotateY(0deg);
     transform: rotateY(0deg);
@@ -590,9 +570,6 @@ table {
   .book .page.flipped:nth-child(odd){
     -webkit-transform: rotateY(0deg);
         transform: rotateY(0deg);
-  }
-  .book .page.flipped:nth-child(even){
-    pointer-events: none;
   }
   .book .page.flipped:nth-child(even):hover {
     -webkit-transform: rotateY(0deg);
