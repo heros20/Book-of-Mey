@@ -18,7 +18,7 @@ h1,h2,.m-1{
     text-align: center;
 }
 h2{
-	font-size: 1em;
+	font-size: 1.1em;
 }
 .first-P{
 	margin-top: 50px;
@@ -48,7 +48,7 @@ h2{
 p{
   /* text-align: center; */
   margin: 10px 40px;
-  font-size: 0.7vw;
+  font-size: 0.8vw;
   color: #000000;
 }
 @media only screen and (max-width: 1900px) {
@@ -652,10 +652,4 @@ table {
   .carta .box_Img_b{
     font-size: 4vw;
   }
-}
-p{
-  /* text-align: center; */
-  margin: 10px 40px;
-  font-size: 0.7vw;
-  color: #000000;
 }
