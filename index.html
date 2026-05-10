@@ -19,7 +19,7 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#library" aria-label="Retour à la bibliothèque">
+        <a class="brand" href="#library" aria-label="Retour à la bibliothèque" data-view-target="library">
           <span class="brand-mark">BM</span>
           <span>
             <strong>Book of Mey</strong>
@@ -115,30 +115,71 @@
                 </select>
               </label>
               <div class="editor-actions">
-                <button class="primary-action" type="submit">Enregistrer</button>
+                <button class="primary-action" id="save-book" type="submit">Enregistrer le livre</button>
                 <button class="danger-action" id="delete-book" type="button">Supprimer</button>
               </div>
+              <p class="editor-status" id="editor-status" role="status">Aucune modification en attente.</p>
             </aside>
 
             <section class="text-importer">
               <div class="importer-header">
                 <div>
-                  <h2>Texte à importer</h2>
+                  <h2>Panneau de controle des chapitres</h2>
                   <p>
-                    Colle plusieurs chapitres d'un bloc. Les titres commençant par
-                    "Chapitre", "Prologue", "Épilogue" ou "#" deviennent des chapitres.
+                    Ajoute, modifie, supprime ou reorganise les chapitres un par un.
+                    Tu peux aussi importer un texte complet pour remplacer la liste.
                   </p>
                 </div>
-                <button class="secondary-action" id="load-example" type="button">Exemple</button>
+                <div class="chapter-toolbar">
+                  <button class="secondary-action" id="load-example" type="button">Exemple</button>
+                  <button class="primary-action" id="add-empty-chapter" type="button">Nouveau chapitre</button>
+                </div>
               </div>
+              <div class="chapter-control">
+                <aside class="chapter-list-panel">
+                  <div class="panel-title-row">
+                    <h3>Chapitres</h3>
+                    <span id="chapter-count">0</span>
+                  </div>
+                  <div class="chapter-list" id="chapter-list" aria-live="polite"></div>
+                </aside>
+
+                <section class="chapter-editor-panel">
+                  <label>
+                    Titre du chapitre
+                    <input id="chapter-title" type="text" placeholder="Chapitre 1 - Le depart" />
+                  </label>
+                  <label>
+                    Contenu du chapitre
+                    <textarea
+                      id="chapter-content"
+                      spellcheck="true"
+                      placeholder="Premier paragraphe..."
+                    ></textarea>
+                  </label>
+                  <div class="chapter-actions">
+                    <button class="primary-action" id="save-chapter" type="button">Enregistrer le chapitre</button>
+                    <button class="secondary-action" id="move-chapter-up" type="button">Monter</button>
+                    <button class="secondary-action" id="move-chapter-down" type="button">Descendre</button>
+                    <button class="danger-action" id="delete-chapter" type="button">Supprimer le chapitre</button>
+                  </div>
+                </section>
+              </div>
+              <details class="bulk-importer">
+                <summary>Importer ou remplacer le livre complet</summary>
               <textarea
                 id="chapter-source"
                 name="chapters"
-                required
                 spellcheck="true"
                 placeholder="Chapitre 1 - Le départ&#10;&#10;Premier paragraphe...&#10;&#10;Chapitre 2 - La suite&#10;&#10;Deuxième chapitre..."
               ></textarea>
+                <div class="import-actions">
+                  <button class="secondary-action" id="append-import" type="button">Ajouter a la liste</button>
+                  <button class="danger-action" id="replace-import" type="button">Remplacer la liste</button>
+                </div>
               <div class="import-preview" id="import-preview"></div>
+              <div class="import-chapter-preview" id="import-chapter-preview"></div>
+              </details>
             </section>
           </form>
         </section>
@@ -165,7 +206,34 @@
               <div class="reader-tools">
                 <button id="bookmark-button" type="button">Marque-page</button>
                 <button id="resume-button" type="button">Reprendre</button>
+                <button id="reader-settings-toggle" type="button">Aa</button>
+                <button id="reader-focus-toggle" type="button">Plein ecran</button>
               </div>
+
+              <div class="reader-settings" id="reader-settings" hidden>
+                <label>
+                  Taille
+                  <input id="reader-font-size" type="range" min="16" max="24" value="18" />
+                </label>
+                <label>
+                  Interligne
+                  <input id="reader-line-height" type="range" min="145" max="180" value="158" />
+                </label>
+                <label>
+                  Theme
+                  <select id="reader-theme">
+                    <option value="paper">Papier</option>
+                    <option value="light">Clair</option>
+                    <option value="sepia">Sepia</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="reader-search">
+                Rechercher dans le livre
+                <input id="book-search" type="search" placeholder="Mot ou phrase..." />
+              </label>
+              <div class="reader-search-results" id="book-search-results"></div>
 
               <label class="page-jump">
                 Page
@@ -192,6 +260,7 @@
                 <article class="paper-page left-page" id="left-page"></article>
                 <article class="paper-page right-page" id="right-page"></article>
               </div>
+              <button class="focus-exit" id="focus-exit" type="button">Quitter</button>
             </section>
           </div>
         </section>

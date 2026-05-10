@@ -1,5 +1,8 @@
 const STORAGE_KEY = "book-of-mey-library";
 const ACTIVE_BOOK_KEY = "book-of-mey-active-book";
+const READING_PROGRESS_KEY = "book-of-mey-reading-progress";
+const READER_PREFS_KEY = "book-of-mey-reader-prefs";
+const COVER_BUCKET = "covers";
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
 
 const densityMap = {
@@ -17,12 +20,67 @@ const state = {
   activeBookId: null,
   currentPage: 0,
   editingBookId: null,
+  editingChapterId: null,
+  editorChapters: [],
+  editorDirty: false,
+  readerPrefs: {
+    fontSize: 18,
+    lineHeight: 1.58,
+    theme: "paper",
+  },
+  touchStartX: 0,
+  touchStartY: 0,
   pages: [],
   isAnimating: false,
   lastWheelTurnAt: 0,
   storageMode: "local",
   db: null,
 };
+
+function readJsonStorage(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getReadingProgress(bookId) {
+  const progress = readJsonStorage(READING_PROGRESS_KEY, {});
+  return Number.isInteger(progress[bookId]) ? progress[bookId] : null;
+}
+
+function setReadingProgress(bookId, page) {
+  const progress = readJsonStorage(READING_PROGRESS_KEY, {});
+  progress[bookId] = page;
+  localStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(progress));
+}
+
+function loadReaderPrefs() {
+  state.readerPrefs = {
+    ...state.readerPrefs,
+    ...readJsonStorage(READER_PREFS_KEY, {}),
+  };
+}
+
+function saveReaderPrefs() {
+  localStorage.setItem(READER_PREFS_KEY, JSON.stringify(state.readerPrefs));
+}
+
+function syncReaderPrefsControls() {
+  byId("reader-font-size").value = state.readerPrefs.fontSize;
+  byId("reader-line-height").value = Math.round(state.readerPrefs.lineHeight * 100);
+  byId("reader-theme").value = state.readerPrefs.theme;
+}
+
+function applyReaderPrefs() {
+  const reader = byId("book-reader");
+  const view = byId("reader-view");
+  if (!reader || !view) return;
+  reader.style.setProperty("--reader-font-size", `${state.readerPrefs.fontSize}px`);
+  reader.style.setProperty("--reader-line-height", state.readerPrefs.lineHeight);
+  view.dataset.theme = state.readerPrefs.theme;
+}
 
 const sampleText = `Prologue
 
@@ -170,6 +228,23 @@ function getBook(id) {
   return state.books.find((book) => book.id === id);
 }
 
+function setEditorStatus(message, tone = "neutral") {
+  const status = byId("editor-status");
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.tone = tone;
+}
+
+function markEditorDirty(message = "Modifications non enregistrees.") {
+  state.editorDirty = true;
+  setEditorStatus(message, "dirty");
+}
+
+function markEditorSaved(message = "Aucune modification en attente.") {
+  state.editorDirty = false;
+  setEditorStatus(message, "saved");
+}
+
 function normalizeTitle(line) {
   return line.replace(/^#+\s*/, "").trim();
 }
@@ -223,14 +298,260 @@ function parseChapters(source) {
   return chapters.filter((chapter) => chapter.title || chapter.content);
 }
 
+function cloneChapter(chapter, fallbackIndex = 0) {
+  return {
+    id: chapter.id || crypto.randomUUID(),
+    title: (chapter.title || `Chapitre ${fallbackIndex + 1}`).trim(),
+    content: chapter.content || "",
+  };
+}
+
+function setEditorChapters(chapters, selectedId = null, options = {}) {
+  state.editorChapters = chapters.map(cloneChapter);
+  state.editingChapterId = selectedId || state.editorChapters[0]?.id || null;
+  syncChapterSource();
+  renderChapterControl();
+  updateImportPreview();
+  if (options.dirty) {
+    markEditorDirty();
+  }
+}
+
+function getEditingChapterIndex() {
+  return state.editorChapters.findIndex((chapter) => chapter.id === state.editingChapterId);
+}
+
+function getEditingChapter() {
+  return state.editorChapters[getEditingChapterIndex()] || null;
+}
+
+function syncChapterSource() {
+  const source = byId("chapter-source");
+  if (!source) return;
+  source.value = state.editorChapters.map((chapter) => `${chapter.title}\n\n${chapter.content}`.trim()).join("\n\n");
+}
+
+function chapterWordCount(chapter) {
+  return chapter.content.split(/\s+/).filter(Boolean).length;
+}
+
+function selectChapter(chapterId) {
+  state.editingChapterId = chapterId;
+  renderChapterControl();
+}
+
+function renderChapterControl() {
+  const list = byId("chapter-list");
+  if (!list) return;
+
+  const count = byId("chapter-count");
+  const titleInput = byId("chapter-title");
+  const contentInput = byId("chapter-content");
+  const deleteButton = byId("delete-chapter");
+  const moveUpButton = byId("move-chapter-up");
+  const moveDownButton = byId("move-chapter-down");
+  const index = getEditingChapterIndex();
+  const chapter = getEditingChapter();
+
+  list.innerHTML = "";
+  count.textContent = `${state.editorChapters.length}`;
+
+  if (!state.editorChapters.length) {
+    list.innerHTML = '<div class="chapter-empty">Aucun chapitre. Cree un chapitre ou importe un texte complet.</div>';
+  } else {
+    state.editorChapters.forEach((item, itemIndex) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "chapter-list-item";
+      button.classList.toggle("is-active", item.id === state.editingChapterId);
+      button.innerHTML = `
+        <span>${itemIndex + 1}</span>
+        <strong>${escapeHtml(item.title || `Chapitre ${itemIndex + 1}`)}</strong>
+        <small>${chapterWordCount(item)} mot${chapterWordCount(item) > 1 ? "s" : ""}</small>
+      `;
+      button.addEventListener("click", () => selectChapter(item.id));
+      list.appendChild(button);
+    });
+  }
+
+  titleInput.value = chapter?.title || "";
+  contentInput.value = chapter?.content || "";
+  titleInput.disabled = !chapter;
+  contentInput.disabled = !chapter;
+  deleteButton.disabled = !chapter;
+  moveUpButton.disabled = !chapter || index <= 0;
+  moveDownButton.disabled = !chapter || index < 0 || index >= state.editorChapters.length - 1;
+}
+
+function addEmptyChapter() {
+  const chapter = {
+    id: crypto.randomUUID(),
+    title: `Chapitre ${state.editorChapters.length + 1}`,
+    content: "",
+  };
+  state.editorChapters.push(chapter);
+  state.editingChapterId = chapter.id;
+  syncChapterSource();
+  renderChapterControl();
+  updateImportPreview();
+  markEditorDirty("Nouveau chapitre non enregistre.");
+  byId("chapter-title").focus();
+}
+
+function saveCurrentChapter() {
+  const index = getEditingChapterIndex();
+  if (index < 0) return true;
+
+  const title = byId("chapter-title").value.trim();
+  const content = byId("chapter-content").value.trim();
+
+  if (!title) {
+    alert("Ajoute un titre pour ce chapitre.");
+    return false;
+  }
+
+  state.editorChapters[index] = {
+    ...state.editorChapters[index],
+    title,
+    content,
+  };
+  syncChapterSource();
+  renderChapterControl();
+  updateImportPreview();
+  markEditorDirty("Chapitre modifie, livre non enregistre.");
+  return true;
+}
+
+function updateCurrentChapterDraft() {
+  const index = getEditingChapterIndex();
+  if (index < 0) return;
+
+  state.editorChapters[index] = {
+    ...state.editorChapters[index],
+    title: byId("chapter-title").value.trim(),
+    content: byId("chapter-content").value,
+  };
+  syncChapterSource();
+  updateImportPreview();
+  markEditorDirty("Chapitre modifie, livre non enregistre.");
+}
+
+function deleteCurrentChapter() {
+  const index = getEditingChapterIndex();
+  if (index < 0) return;
+
+  const chapter = state.editorChapters[index];
+  if (!confirm(`Supprimer le chapitre "${chapter.title}" ?`)) return;
+
+  state.editorChapters.splice(index, 1);
+  state.editingChapterId = state.editorChapters[Math.min(index, state.editorChapters.length - 1)]?.id || null;
+  syncChapterSource();
+  renderChapterControl();
+  updateImportPreview();
+  markEditorDirty("Chapitre supprime, livre non enregistre.");
+}
+
+function moveCurrentChapter(direction) {
+  const index = getEditingChapterIndex();
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= state.editorChapters.length) return;
+
+  const [chapter] = state.editorChapters.splice(index, 1);
+  state.editorChapters.splice(nextIndex, 0, chapter);
+  syncChapterSource();
+  renderChapterControl();
+  updateImportPreview();
+  markEditorDirty("Ordre des chapitres modifie, livre non enregistre.");
+}
+
+function importChaptersFromSource(mode) {
+  const chapters = parseChapters(byId("chapter-source").value);
+  if (!chapters.length) {
+    alert("Aucun chapitre n'a ete detecte dans le texte importe.");
+    return;
+  }
+
+  if (mode === "replace" && state.editorChapters.length && !confirm("Remplacer tous les chapitres actuels par l'import ?")) {
+    return;
+  }
+
+  if (mode === "append") {
+    setEditorChapters([...state.editorChapters, ...chapters], chapters[0].id, { dirty: true });
+    return;
+  }
+
+  setEditorChapters(chapters, chapters[0].id, { dirty: true });
+}
+
+function shouldStartNewParagraph(previousLine, nextLine, currentText) {
+  const previous = previousLine.trim();
+  const next = nextLine.trim();
+  const nextStartsDialogue = /^[-–—«"“]/.test(next);
+  const nextStartsSpeechLabel = /^[A-ZÉÈÀÂÎÔÛÇ][^.!?]{0,80}\s*:\s*[-–—]?\s*\S/.test(next);
+  const previousEndsSentence = /[.!?…»”")\]]$/.test(previous);
+  const nextStartsSentence = /^[A-ZÀ-Ý0-9«"“—-]/.test(next);
+
+  return nextStartsDialogue || nextStartsSpeechLabel || (previousEndsSentence && nextStartsSentence);
+}
+
+function splitSoftLineBreaks(block) {
+  const lines = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) {
+    return [block.replace(/\n/g, " ").trim()].filter(Boolean);
+  }
+
+  const paragraphs = [];
+  let currentLines = [];
+
+  lines.forEach((line) => {
+    if (!currentLines.length) {
+      currentLines.push(line);
+      return;
+    }
+
+    const currentText = currentLines.join(" ");
+    const previousLine = currentLines[currentLines.length - 1];
+    if (shouldStartNewParagraph(previousLine, line, currentText)) {
+      paragraphs.push(currentText);
+      currentLines = [line];
+      return;
+    }
+
+    currentLines.push(line);
+  });
+
+  if (currentLines.length) {
+    paragraphs.push(currentLines.join(" "));
+  }
+
+  return paragraphs.map((paragraph) => paragraph.trim()).filter(Boolean);
+}
+
 function paragraphsFromContent(content) {
   return content
+    .replace(/\r\n/g, "\n")
     .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\n/g, " ").trim())
+    .flatMap(splitSoftLineBreaks)
     .filter(Boolean);
 }
 
-function paginateBook(book) {
+function createPage(chapter, chapterIndex, startsChapter, startParagraphIndex = 0) {
+  return {
+    chapterId: chapter.id,
+    chapterIndex,
+    chapterTitle: chapter.title,
+    startsChapter,
+    paragraphs: [],
+    paragraphStart: startParagraphIndex,
+    charCount: startsChapter ? chapter.title.length + 120 : 0,
+  };
+}
+
+function estimatePaginateBook(book) {
   const baseChars = densityMap[book.density] || densityMap.classic;
   const fontScale = Math.pow(18 / (book.fontSize || 18), 1.35);
   const maxChars = Math.round(baseChars * fontScale);
@@ -238,27 +559,13 @@ function paginateBook(book) {
 
   book.chapters.forEach((chapter, chapterIndex) => {
     const paragraphs = paragraphsFromContent(chapter.content);
-    let page = {
-      chapterId: chapter.id,
-      chapterIndex,
-      chapterTitle: chapter.title,
-      startsChapter: true,
-      paragraphs: [],
-      charCount: chapter.title.length + 120,
-    };
+    let page = createPage(chapter, chapterIndex, true, 0);
 
-    paragraphs.forEach((paragraph) => {
+    paragraphs.forEach((paragraph, paragraphIndex) => {
       const weight = paragraph.length + 90;
       if (page.paragraphs.length && page.charCount + weight > maxChars) {
         pages.push(page);
-        page = {
-          chapterId: chapter.id,
-          chapterIndex,
-          chapterTitle: chapter.title,
-          startsChapter: false,
-          paragraphs: [],
-          charCount: 0,
-        };
+        page = createPage(chapter, chapterIndex, false, paragraphIndex);
       }
 
       if (paragraph.length > maxChars) {
@@ -266,27 +573,13 @@ function paginateBook(book) {
         chunks.forEach((chunk, chunkIndex) => {
           if (page.paragraphs.length && page.charCount + chunk.length > maxChars) {
             pages.push(page);
-            page = {
-              chapterId: chapter.id,
-              chapterIndex,
-              chapterTitle: chapter.title,
-              startsChapter: false,
-              paragraphs: [],
-              charCount: 0,
-            };
+            page = createPage(chapter, chapterIndex, false, paragraphIndex);
           }
           page.paragraphs.push(chunk.trim());
           page.charCount += chunk.length + 90;
           if (chunkIndex < chunks.length - 1) {
             pages.push(page);
-            page = {
-              chapterId: chapter.id,
-              chapterIndex,
-              chapterTitle: chapter.title,
-              startsChapter: false,
-              paragraphs: [],
-              charCount: 0,
-            };
+            page = createPage(chapter, chapterIndex, false, paragraphIndex);
           }
         });
         return;
@@ -300,6 +593,90 @@ function paginateBook(book) {
   });
 
   return pages.length ? pages : [{ chapterTitle: book.title, startsChapter: true, paragraphs: ["Aucun texte ajouté pour le moment."] }];
+}
+
+function pageHtml(page) {
+  const title = page.startsChapter ? `<h2>${escapeHtml(page.chapterTitle)}</h2>` : "";
+  const paragraphs = page.paragraphs
+    .map((paragraph) => `<p${isDialogueParagraph(paragraph) ? ' class="dialogue-line"' : ""}>${escapeHtml(paragraph)}</p>`)
+    .join("");
+
+  return `
+    <div class="page-kicker">${escapeHtml(page.chapterTitle || "")}</div>
+    ${title}
+    ${paragraphs}
+    <span class="page-number">0</span>
+  `;
+}
+
+function createPaginationMeasurer(book) {
+  const samplePage = byId("right-page") || byId("left-page");
+  const bounds = samplePage?.getBoundingClientRect();
+  if (!bounds?.width || !bounds?.height) return null;
+
+  const measurer = document.createElement("article");
+  measurer.className = "paper-page pagination-measurer";
+  measurer.style.width = `${bounds.width}px`;
+  measurer.style.minHeight = `${bounds.height}px`;
+  measurer.style.height = `${bounds.height}px`;
+  measurer.style.setProperty("--reader-font-size", `${state.readerPrefs.fontSize || book.fontSize || 18}px`);
+  measurer.style.setProperty("--reader-line-height", state.readerPrefs.lineHeight || 1.58);
+  document.body.appendChild(measurer);
+  return measurer;
+}
+
+function overflowsPage(measurer) {
+  return measurer.scrollHeight > measurer.clientHeight + 2;
+}
+
+function measuredPaginateBook(book) {
+  const measurer = createPaginationMeasurer(book);
+  if (!measurer) return estimatePaginateBook(book);
+
+  const pages = [];
+
+  book.chapters.forEach((chapter, chapterIndex) => {
+    const paragraphs = paragraphsFromContent(chapter.content);
+    let page = createPage(chapter, chapterIndex, true, 0);
+
+    paragraphs.forEach((paragraph, paragraphIndex) => {
+      page.paragraphs.push(paragraph);
+      measurer.innerHTML = pageHtml(page);
+
+      if (page.paragraphs.length > 1 && overflowsPage(measurer)) {
+        page.paragraphs.pop();
+        pages.push(page);
+        page = createPage(chapter, chapterIndex, false, paragraphIndex);
+        page.paragraphs.push(paragraph);
+        measurer.innerHTML = pageHtml(page);
+      }
+
+      if (overflowsPage(measurer)) {
+        const maxChars = Math.max(420, Math.floor(paragraph.length * 0.72));
+        page.paragraphs.pop();
+        if (page.paragraphs.length) pages.push(page);
+
+        const chunks = paragraph.match(new RegExp(`.{1,${maxChars}}(\\s|$)`, "g")) || [paragraph];
+        chunks.forEach((chunk) => {
+          const chunkPage = createPage(chapter, chapterIndex, false, paragraphIndex);
+          chunkPage.paragraphs.push(chunk.trim());
+          pages.push(chunkPage);
+        });
+        page = createPage(chapter, chapterIndex, false, paragraphIndex + 1);
+      }
+    });
+
+    if (page.paragraphs.length || !paragraphs.length) {
+      pages.push(page);
+    }
+  });
+
+  measurer.remove();
+  return pages.length ? pages : estimatePaginateBook(book);
+}
+
+function paginateBook(book, options = {}) {
+  return options.measured ? measuredPaginateBook(book) : estimatePaginateBook(book);
 }
 
 function findChapterStartPage(pages, chapterId) {
@@ -406,8 +783,10 @@ async function handleCoverFileChange(event) {
 }
 
 function updateImportPreview() {
-  const chapters = parseChapters(byId("chapter-source").value);
-  const words = chapters.reduce((total, chapter) => total + chapter.content.split(/\s+/).filter(Boolean).length, 0);
+  const importedChapters = parseChapters(byId("chapter-source").value);
+  const chapters = state.editorChapters;
+  const words = chapters.reduce((total, chapter) => total + chapterWordCount(chapter), 0);
+  const importPreview = byId("import-chapter-preview");
   const previewBook = {
     chapters,
     fontSize: Number(byId("font-size").value),
@@ -415,7 +794,40 @@ function updateImportPreview() {
     title: byId("book-title").value || "Aperçu",
   };
   const pages = chapters.length ? paginateBook(previewBook).length : 0;
-  byId("import-preview").textContent = `${chapters.length} chapitre${chapters.length > 1 ? "s" : ""} détecté${chapters.length > 1 ? "s" : ""} · environ ${words} mots · ${pages} page${pages > 1 ? "s" : ""} estimée${pages > 1 ? "s" : ""}`;
+  byId("import-preview").textContent = `${chapters.length} chapitre${chapters.length > 1 ? "s" : ""} dans le livre - environ ${words} mots - ${pages} page${pages > 1 ? "s" : ""} estimee${pages > 1 ? "s" : ""} - ${importedChapters.length} chapitre${importedChapters.length > 1 ? "s" : ""} detecte${importedChapters.length > 1 ? "s" : ""} dans l'import`;
+  if (!importPreview) return;
+
+  if (!byId("chapter-source").value.trim()) {
+    importPreview.innerHTML = "";
+    return;
+  }
+
+  if (!importedChapters.length) {
+    importPreview.innerHTML = '<p class="import-warning">Aucun chapitre detecte. Verifie que les titres commencent par Chapitre, Prologue, Epilogue ou #.</p>';
+    return;
+  }
+
+  importPreview.innerHTML = importedChapters
+    .map((chapter, index) => `
+      <div class="import-preview-item">
+        <strong>${index + 1}. ${escapeHtml(chapter.title || `Chapitre ${index + 1}`)}</strong>
+        <span>${chapterWordCount(chapter)} mot${chapterWordCount(chapter) > 1 ? "s" : ""}</span>
+      </div>
+    `)
+    .join("");
+}
+
+function validateChapters(chapters) {
+  if (!chapters.length) {
+    return "Ajoute au moins un chapitre ou un bloc de texte.";
+  }
+
+  const emptyChapter = chapters.find((chapter) => !chapter.content.trim());
+  if (emptyChapter) {
+    return `Le chapitre "${emptyChapter.title}" est vide. Ajoute du contenu ou supprime-le.`;
+  }
+
+  return "";
 }
 
 function readForm() {
@@ -426,7 +838,7 @@ function readForm() {
     cover: coverUpload.dataUrl || byId("book-cover").value.trim(),
     fontSize: Number(byId("font-size").value),
     density: byId("page-density").value,
-    chapters: parseChapters(byId("chapter-source").value),
+    chapters: state.editorChapters.map(cloneChapter),
   };
 }
 
@@ -444,11 +856,82 @@ function toBookRow(payload, bookmarkPage = 0) {
 
 function toChapterRows(bookId, chapters) {
   return chapters.map((chapter, index) => ({
+    id: chapter.id,
     book_id: bookId,
     position: index + 1,
     title: chapter.title,
     content: chapter.content,
   }));
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = meta.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: mime });
+}
+
+async function uploadCoverToDatabase(bookId, cover) {
+  if (!cover?.startsWith("data:image/") || !state.db?.storage) {
+    return cover;
+  }
+
+  try {
+    const blob = dataUrlToBlob(cover);
+    const extension = blob.type.split("/")[1] || "jpg";
+    const path = `${bookId}/cover-${Date.now()}.${extension}`;
+    const { error } = await state.db.storage
+      .from(COVER_BUCKET)
+      .upload(path, blob, { contentType: blob.type, upsert: true });
+
+    if (error) throw error;
+
+    const { data } = state.db.storage.from(COVER_BUCKET).getPublicUrl(path);
+    return data.publicUrl || cover;
+  } catch (error) {
+    console.warn("Impossible d'envoyer la couverture vers Supabase Storage, conservation en base64.", error);
+    return cover;
+  }
+}
+
+async function saveChaptersToDatabase(bookId, chapters, existingBook = null) {
+  const chapterRows = toChapterRows(bookId, chapters);
+  const keepIds = chapterRows.map((chapter) => chapter.id);
+
+  if (existingBook?.chapters?.length) {
+    const positionUpdates = await Promise.all(existingBook.chapters.map((chapter, index) =>
+      state.db
+        .from("chapters")
+        .update({ position: -(index + 1) })
+        .eq("id", chapter.id)
+    ));
+
+    const positionError = positionUpdates.find((result) => result.error)?.error;
+    if (positionError) throw positionError;
+
+    const removedIds = existingBook.chapters
+      .map((chapter) => chapter.id)
+      .filter((id) => !keepIds.includes(id));
+
+    if (removedIds.length) {
+      const { error } = await state.db.from("chapters").delete().in("id", removedIds);
+      if (error) throw error;
+    }
+  }
+
+  if (!chapterRows.length) return;
+
+  const { error } = await state.db
+    .from("chapters")
+    .upsert(chapterRows, { onConflict: "id" });
+
+  if (error) throw error;
 }
 
 async function saveBookToDatabase(payload, existingBook = null) {
@@ -465,13 +948,6 @@ async function saveBookToDatabase(payload, existingBook = null) {
 
     if (error) throw error;
     savedBook = data;
-
-    const { error: deleteError } = await state.db
-      .from("chapters")
-      .delete()
-      .eq("book_id", existingBook.id);
-
-    if (deleteError) throw deleteError;
   } else {
     const { data, error } = await state.db
       .from("books")
@@ -483,12 +959,17 @@ async function saveBookToDatabase(payload, existingBook = null) {
     savedBook = data;
   }
 
-  const chapterRows = toChapterRows(savedBook.id, payload.chapters);
-  if (chapterRows.length) {
-    const { error } = await state.db.from("chapters").insert(chapterRows);
+  const cover = await uploadCoverToDatabase(savedBook.id, payload.cover);
+  if (cover !== savedBook.cover) {
+    const { error } = await state.db
+      .from("books")
+      .update({ cover })
+      .eq("id", savedBook.id);
+
     if (error) throw error;
   }
 
+  await saveChaptersToDatabase(savedBook.id, payload.chapters, existingBook);
   await loadBooksFromDatabase();
   return savedBook.id;
 }
@@ -504,17 +985,21 @@ function fillForm(book) {
   setCoverPreview(book?.cover || "");
   byId("font-size").value = book?.fontSize || 18;
   byId("page-density").value = book?.density || "classic";
-  byId("chapter-source").value = book ? book.chapters.map((chapter) => `${chapter.title}\n\n${chapter.content}`).join("\n\n") : "";
+  setEditorChapters(book?.chapters || []);
   byId("delete-book").hidden = !book;
-  updateImportPreview();
+  markEditorSaved(book ? "Livre charge. Aucune modification en attente." : "Nouveau livre pret.");
 }
 
 async function saveForm(event) {
   event.preventDefault();
+  if (getEditingChapter() && !saveCurrentChapter()) {
+    return;
+  }
   const payload = readForm();
 
-  if (!payload.chapters.length) {
-    alert("Ajoute au moins un chapitre ou un bloc de texte.");
+  const chapterError = validateChapters(payload.chapters);
+  if (chapterError) {
+    alert(chapterError);
     return;
   }
 
@@ -549,6 +1034,7 @@ async function saveForm(event) {
     }
 
     renderBookGrid();
+    markEditorSaved("Livre enregistre.");
     openReader(state.activeBookId);
   } catch (error) {
     console.error(error);
@@ -599,11 +1085,42 @@ function openReader(bookId, page = null) {
 
   state.activeBookId = bookId;
   localStorage.setItem(ACTIVE_BOOK_KEY, bookId);
-  state.pages = paginateBook(book);
-  state.currentPage = Math.min(Math.max(page ?? book.bookmarkPage ?? 0, 0), state.pages.length - 1);
+  showView("reader");
+  byId("reader-layout").hidden = false;
+  byId("reader-empty").hidden = true;
+  state.pages = paginateBook(book, { measured: true });
+  state.currentPage = Math.min(Math.max(page ?? getReadingProgress(book.id) ?? book.bookmarkPage ?? 0, 0), state.pages.length - 1);
 
   renderReader();
-  showView("reader");
+}
+
+function getCurrentPageAnchor() {
+  const page = state.pages[state.currentPage];
+  return page ? { chapterId: page.chapterId, paragraphStart: page.paragraphStart || 0 } : null;
+}
+
+function findPageByAnchor(anchor) {
+  if (!anchor) return state.currentPage;
+
+  const exactIndex = state.pages.findIndex((page) =>
+    page.chapterId === anchor.chapterId && (page.paragraphStart || 0) >= anchor.paragraphStart
+  );
+
+  if (exactIndex >= 0) return exactIndex;
+
+  const chapterIndex = state.pages.findIndex((page) => page.chapterId === anchor.chapterId);
+  return chapterIndex >= 0 ? chapterIndex : Math.min(state.currentPage, state.pages.length - 1);
+}
+
+function repaginateActiveBook() {
+  const book = getBook(state.activeBookId);
+  if (!book) return;
+
+  const anchor = getCurrentPageAnchor();
+  state.pages = paginateBook(book, { measured: true });
+  state.currentPage = Math.min(Math.max(findPageByAnchor(anchor), 0), state.pages.length - 1);
+  setReadingProgress(book.id, state.currentPage);
+  renderReader();
 }
 
 function renderReader() {
@@ -616,10 +1133,11 @@ function renderReader() {
 
   byId("reader-layout").hidden = false;
   byId("reader-empty").hidden = true;
+  setReadingProgress(book.id, state.currentPage);
   byId("reader-book-title").textContent = book.title;
   byId("reader-book-meta").textContent = `${book.author || "Auteur inconnu"} · ${state.pages.length} pages`;
   byId("reader-mini-cover").style.backgroundImage = coverBackground(book);
-  byId("book-reader").style.setProperty("--reader-font-size", `${book.fontSize || 18}px`);
+  applyReaderPrefs();
 
   const isMobile = window.matchMedia("(max-width: 760px)").matches;
   const leftIndex = isMobile ? state.currentPage : state.currentPage - (state.currentPage % 2);
@@ -642,6 +1160,7 @@ function renderReader() {
   byId("next-page").disabled = isMobile ? state.currentPage >= state.pages.length - 1 : leftIndex + 2 >= state.pages.length;
 
   renderToc(book);
+  renderBookSearchResults();
 }
 
 function renderPage(container, page, index, book) {
@@ -690,6 +1209,89 @@ function renderToc(book) {
     button.addEventListener("click", () => goToPage(pageIndex));
     list.appendChild(button);
   });
+}
+
+function findPageForParagraph(chapterId, paragraphText) {
+  const pageIndex = state.pages.findIndex((page) =>
+    page.chapterId === chapterId && page.paragraphs.some((paragraph) => paragraph.includes(paragraphText.slice(0, 80)))
+  );
+  return Math.max(0, pageIndex);
+}
+
+function renderBookSearchResults() {
+  const book = getBook(state.activeBookId);
+  const container = byId("book-search-results");
+  const query = byId("book-search").value.trim().toLowerCase();
+  container.innerHTML = "";
+
+  if (!book || query.length < 2) return;
+
+  const results = [];
+  book.chapters.forEach((chapter) => {
+    paragraphsFromContent(chapter.content).forEach((paragraph) => {
+      const index = paragraph.toLowerCase().indexOf(query);
+      if (index < 0 || results.length >= 8) return;
+      results.push({
+        chapter,
+        paragraph,
+        excerpt: paragraph.slice(Math.max(0, index - 48), index + query.length + 76),
+      });
+    });
+  });
+
+  if (!results.length) {
+    container.innerHTML = '<p class="import-warning">Aucun resultat.</p>';
+    return;
+  }
+
+  results.forEach((result) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.innerHTML = `
+      <span class="search-result-title">${escapeHtml(result.chapter.title)}</span>
+      <span class="search-result-excerpt">${escapeHtml(result.excerpt)}</span>
+    `;
+    button.addEventListener("click", () => goToPage(findPageForParagraph(result.chapter.id, result.paragraph)));
+    container.appendChild(button);
+  });
+}
+
+function updateReaderPreference(key, value) {
+  state.readerPrefs[key] = value;
+  saveReaderPrefs();
+  if (key === "fontSize" || key === "lineHeight") {
+    repaginateActiveBook();
+    return;
+  }
+  applyReaderPrefs();
+}
+
+function toggleReaderFocus() {
+  document.body.classList.toggle("reader-focus");
+  byId("reader-focus-toggle").textContent = document.body.classList.contains("reader-focus") ? "Quitter" : "Plein ecran";
+  window.setTimeout(repaginateActiveBook, 60);
+}
+
+function exitReaderFocus() {
+  if (!document.body.classList.contains("reader-focus")) return;
+  document.body.classList.remove("reader-focus");
+  byId("reader-focus-toggle").textContent = "Plein ecran";
+  window.setTimeout(repaginateActiveBook, 60);
+}
+
+function handleTouchStart(event) {
+  const touch = event.changedTouches[0];
+  state.touchStartX = touch.clientX;
+  state.touchStartY = touch.clientY;
+}
+
+function handleTouchEnd(event) {
+  const touch = event.changedTouches[0];
+  const deltaX = touch.clientX - state.touchStartX;
+  const deltaY = touch.clientY - state.touchStartY;
+
+  if (Math.abs(deltaX) < 56 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) return;
+  changePageByDirection(deltaX < 0 ? "forward" : "backward");
 }
 
 function goToPage(pageIndex) {
@@ -896,7 +1498,9 @@ function escapeHtml(value) {
 
 function bindEvents() {
   document.querySelectorAll("[data-view-target]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      exitReaderFocus();
       const target = button.dataset.viewTarget;
       if (target === "reader" && !state.activeBookId) {
         showView("library");
@@ -909,7 +1513,20 @@ function bindEvents() {
   byId("search-input").addEventListener("input", renderBookGrid);
   byId("sort-select").addEventListener("change", renderBookGrid);
   byId("book-form").addEventListener("submit", saveForm);
+  ["book-title", "book-author", "book-summary", "book-cover", "font-size", "page-density"].forEach((id) => {
+    byId(id).addEventListener("input", () => markEditorDirty());
+    byId(id).addEventListener("change", () => markEditorDirty());
+  });
   byId("chapter-source").addEventListener("input", updateImportPreview);
+  byId("add-empty-chapter").addEventListener("click", addEmptyChapter);
+  byId("chapter-title").addEventListener("input", updateCurrentChapterDraft);
+  byId("chapter-content").addEventListener("input", updateCurrentChapterDraft);
+  byId("save-chapter").addEventListener("click", saveCurrentChapter);
+  byId("delete-chapter").addEventListener("click", deleteCurrentChapter);
+  byId("move-chapter-up").addEventListener("click", () => moveCurrentChapter(-1));
+  byId("move-chapter-down").addEventListener("click", () => moveCurrentChapter(1));
+  byId("append-import").addEventListener("click", () => importChaptersFromSource("append"));
+  byId("replace-import").addEventListener("click", () => importChaptersFromSource("replace"));
   byId("font-size").addEventListener("input", updateImportPreview);
   byId("page-density").addEventListener("change", updateImportPreview);
   byId("book-cover").addEventListener("input", (event) => {
@@ -920,7 +1537,7 @@ function bindEvents() {
   byId("reset-editor").addEventListener("click", () => fillForm(null));
   byId("load-example").addEventListener("click", () => {
     byId("chapter-source").value = sampleText;
-    updateImportPreview();
+    importChaptersFromSource("replace");
   });
   byId("delete-book").addEventListener("click", deleteCurrentBook);
   byId("prev-page").addEventListener("click", () => changePageByDirection("backward"));
@@ -928,33 +1545,56 @@ function bindEvents() {
   byId("left-page").addEventListener("click", () => changePageFromPaper("left"));
   byId("right-page").addEventListener("click", () => changePageFromPaper("right"));
   byId("book-reader").addEventListener("wheel", changePageFromWheel, { passive: false });
+  byId("book-reader").addEventListener("touchstart", handleTouchStart, { passive: true });
+  byId("book-reader").addEventListener("touchend", handleTouchEnd, { passive: true });
   byId("bookmark-button").addEventListener("click", setBookmark);
   byId("resume-button").addEventListener("click", () => {
     const book = getBook(state.activeBookId);
-    if (book) goToPage(book.bookmarkPage || 0);
+    if (book) goToPage(getReadingProgress(book.id) ?? book.bookmarkPage ?? 0);
   });
+  byId("reader-settings-toggle").addEventListener("click", () => {
+    byId("reader-settings").hidden = !byId("reader-settings").hidden;
+  });
+  byId("reader-focus-toggle").addEventListener("click", toggleReaderFocus);
+  byId("focus-exit").addEventListener("click", exitReaderFocus);
+  byId("reader-font-size").addEventListener("input", (event) => updateReaderPreference("fontSize", Number(event.target.value)));
+  byId("reader-line-height").addEventListener("input", (event) => updateReaderPreference("lineHeight", Number(event.target.value) / 100));
+  byId("reader-theme").addEventListener("change", (event) => updateReaderPreference("theme", event.target.value));
+  byId("book-search").addEventListener("input", renderBookSearchResults);
   byId("page-jump").addEventListener("change", (event) => {
     goToPage(Number(event.target.value) - 1);
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      exitReaderFocus();
+      return;
+    }
     if (!state.activeBookId || !byId("reader-view").classList.contains("is-active")) return;
     if (event.key === "ArrowRight") changePageByDirection("forward");
     if (event.key === "ArrowLeft") changePageByDirection("backward");
   });
 
   window.addEventListener("resize", () => {
-    if (state.activeBookId) renderReader();
+    if (state.activeBookId) repaginateActiveBook();
+  });
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!state.editorDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
   });
 }
 
 async function init() {
+  loadReaderPrefs();
   await loadBooks();
   state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
   fillForm(null);
   bindEvents();
+  syncReaderPrefsControls();
   renderBookGrid();
-  if (state.activeBookId) openReader(state.activeBookId, 0);
+  if (state.activeBookId) openReader(state.activeBookId);
   showView("library");
 }
 
