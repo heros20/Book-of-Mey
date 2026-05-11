@@ -38,7 +38,8 @@ body {
 button,
 input,
 select,
-textarea {
+textarea,
+.rich-text-editor {
   font: inherit;
 }
 
@@ -564,6 +565,33 @@ textarea:focus {
 #chapter-content {
   min-height: 320px;
   height: 100%;
+}
+
+.rich-text-editor {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: #fffdf8;
+  line-height: 1.55;
+  outline: none;
+  white-space: pre-wrap;
+}
+
+.rich-text-editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(116, 109, 100, 0.74);
+}
+
+.rich-text-editor:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(95, 111, 82, 0.14);
+}
+
+.rich-text-editor p {
+  margin: 0 0 0.9em;
 }
 
 .bulk-importer {

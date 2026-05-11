@@ -15,6 +15,9 @@ const coverUpload = {
   dataUrl: "",
 };
 
+const richInlineTags = new Set(["B", "STRONG", "I", "EM", "U", "S", "DEL", "MARK", "BR"]);
+const richBlockTags = new Set(["P", "DIV", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE"]);
+
 const state = {
   books: [],
   activeBookId: null,
@@ -245,6 +248,127 @@ function markEditorSaved(message = "Aucune modification en attente.") {
   setEditorStatus(message, "saved");
 }
 
+function hasHtmlMarkup(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
+}
+
+function plainTextToHtml(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((block) => block.replace(/\n/g, "<br>").trim())
+    .filter(Boolean)
+    .map((block) => `<p>${escapeHtml(block).replace(/&lt;br&gt;/g, "<br>")}</p>`)
+    .join("");
+}
+
+function sanitizeRichHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = String(html || "");
+  const output = document.createElement("div");
+
+  const wrapStyledChildren = (element, source) => {
+    const style = source.getAttribute("style") || "";
+    const fontWeight = style.match(/font-weight\s*:\s*([^;]+)/i)?.[1]?.trim() || "";
+    const isBold = /^(bold|bolder)$/i.test(fontWeight) || Number(fontWeight) >= 600;
+    const isItalic = /font-style\s*:\s*(italic|oblique)/i.test(style);
+    const isUnderline = /text-decoration(?:-line)?\s*:[^;]*underline/i.test(style);
+    const isStrike = /text-decoration(?:-line)?\s*:[^;]*line-through/i.test(style);
+
+    [
+      [isStrike, "s"],
+      [isUnderline, "u"],
+      [isItalic, "em"],
+      [isBold, "strong"],
+    ].forEach(([shouldWrap, tagName]) => {
+      if (!shouldWrap || !element.childNodes.length) return;
+      const wrapper = document.createElement(tagName);
+      while (element.firstChild) wrapper.appendChild(element.firstChild);
+      element.appendChild(wrapper);
+    });
+  };
+
+  const appendCleanChildren = (source, target) => {
+    source.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        target.appendChild(document.createTextNode(child.textContent || ""));
+        return;
+      }
+
+      if (child.nodeType !== Node.ELEMENT_NODE) return;
+
+      const tagName = child.tagName.toUpperCase();
+      if (richInlineTags.has(tagName)) {
+        const normalizedTag = tagName === "B" ? "strong" : tagName === "I" ? "em" : tagName.toLowerCase();
+        const cleanInline = document.createElement(normalizedTag);
+        appendCleanChildren(child, cleanInline);
+        wrapStyledChildren(cleanInline, child);
+        target.appendChild(cleanInline);
+        return;
+      }
+
+      if (richBlockTags.has(tagName)) {
+        const paragraph = document.createElement("p");
+        appendCleanChildren(child, paragraph);
+        wrapStyledChildren(paragraph, child);
+        if (paragraph.textContent.trim() || paragraph.querySelector("br")) {
+          target.appendChild(paragraph);
+        }
+        return;
+      }
+
+      const styledInline = document.createElement("span");
+      appendCleanChildren(child, styledInline);
+      wrapStyledChildren(styledInline, child);
+      while (styledInline.firstChild) target.appendChild(styledInline.firstChild);
+    });
+  };
+
+  appendCleanChildren(template.content, output);
+  return output.innerHTML.trim();
+}
+
+function normalizeRichContent(content) {
+  if (!content) return "";
+  return sanitizeRichHtml(hasHtmlMarkup(content) ? content : plainTextToHtml(content));
+}
+
+function richContentToPlainText(content) {
+  const container = document.createElement("div");
+  container.innerHTML = normalizeRichContent(content);
+  container.querySelectorAll("p, div, li, blockquote, h1, h2, h3, h4, h5, h6").forEach((block) => {
+    block.appendChild(document.createTextNode("\n\n"));
+  });
+  container.querySelectorAll("br").forEach((breakNode) => {
+    breakNode.replaceWith(document.createTextNode("\n"));
+  });
+  return container.textContent.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function readRichEditorContent() {
+  const editor = byId("chapter-content");
+  return normalizeRichContent(editor.innerHTML);
+}
+
+function insertRichHtmlAtSelection(html) {
+  document.execCommand("insertHTML", false, sanitizeRichHtml(html));
+}
+
+function handleRichEditorPaste(event) {
+  const html = event.clipboardData?.getData("text/html");
+  const text = event.clipboardData?.getData("text/plain");
+
+  if (!html && !text) return;
+
+  event.preventDefault();
+  if (html) {
+    insertRichHtmlAtSelection(html);
+  } else {
+    insertRichHtmlAtSelection(plainTextToHtml(text));
+  }
+  updateCurrentChapterDraft();
+}
+
 function normalizeTitle(line) {
   return line.replace(/^#+\s*/, "").trim();
 }
@@ -328,11 +452,11 @@ function getEditingChapter() {
 function syncChapterSource() {
   const source = byId("chapter-source");
   if (!source) return;
-  source.value = state.editorChapters.map((chapter) => `${chapter.title}\n\n${chapter.content}`.trim()).join("\n\n");
+  source.value = state.editorChapters.map((chapter) => `${chapter.title}\n\n${richContentToPlainText(chapter.content)}`.trim()).join("\n\n");
 }
 
 function chapterWordCount(chapter) {
-  return chapter.content.split(/\s+/).filter(Boolean).length;
+  return richContentToPlainText(chapter.content).split(/\s+/).filter(Boolean).length;
 }
 
 function selectChapter(chapterId) {
@@ -375,9 +499,10 @@ function renderChapterControl() {
   }
 
   titleInput.value = chapter?.title || "";
-  contentInput.value = chapter?.content || "";
+  contentInput.innerHTML = normalizeRichContent(chapter?.content || "");
   titleInput.disabled = !chapter;
-  contentInput.disabled = !chapter;
+  contentInput.contentEditable = chapter ? "true" : "false";
+  contentInput.setAttribute("aria-disabled", chapter ? "false" : "true");
   deleteButton.disabled = !chapter;
   moveUpButton.disabled = !chapter || index <= 0;
   moveDownButton.disabled = !chapter || index < 0 || index >= state.editorChapters.length - 1;
@@ -403,7 +528,7 @@ function saveCurrentChapter() {
   if (index < 0) return true;
 
   const title = byId("chapter-title").value.trim();
-  const content = byId("chapter-content").value.trim();
+  const content = readRichEditorContent();
 
   if (!title) {
     alert("Ajoute un titre pour ce chapitre.");
@@ -429,7 +554,7 @@ function updateCurrentChapterDraft() {
   state.editorChapters[index] = {
     ...state.editorChapters[index],
     title: byId("chapter-title").value.trim(),
-    content: byId("chapter-content").value,
+    content: readRichEditorContent(),
   };
   syncChapterSource();
   updateImportPreview();
@@ -532,11 +657,51 @@ function splitSoftLineBreaks(block) {
 }
 
 function paragraphsFromContent(content) {
-  return content
+  if (hasHtmlMarkup(content)) {
+    const container = document.createElement("div");
+    container.innerHTML = normalizeRichContent(content);
+    const blocks = [];
+    let inlineParts = [];
+
+    const flushInlineParts = () => {
+      const inlineContent = inlineParts.join("").trim();
+      if (inlineContent) blocks.push(inlineContent);
+      inlineParts = [];
+    };
+
+    container.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent.trim();
+        if (text) inlineParts.push(escapeHtml(text));
+        return;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+      if (node.tagName.toUpperCase() === "P") {
+        flushInlineParts();
+        const paragraph = node.innerHTML.trim();
+        if (paragraph) blocks.push(paragraph);
+        return;
+      }
+
+      inlineParts.push(node.outerHTML);
+    });
+
+    flushInlineParts();
+    return blocks;
+  }
+
+  return String(content || "")
     .replace(/\r\n/g, "\n")
     .split(/\n{2,}/)
     .flatMap(splitSoftLineBreaks)
+    .map((paragraph) => escapeHtml(paragraph))
     .filter(Boolean);
+}
+
+function paragraphPlainText(paragraph) {
+  return richContentToPlainText(paragraph);
 }
 
 function createPage(chapter, chapterIndex, startsChapter, startParagraphIndex = 0) {
@@ -562,20 +727,21 @@ function estimatePaginateBook(book) {
     let page = createPage(chapter, chapterIndex, true, 0);
 
     paragraphs.forEach((paragraph, paragraphIndex) => {
-      const weight = paragraph.length + 90;
+      const plainParagraph = paragraphPlainText(paragraph);
+      const weight = plainParagraph.length + 90;
       if (page.paragraphs.length && page.charCount + weight > maxChars) {
         pages.push(page);
         page = createPage(chapter, chapterIndex, false, paragraphIndex);
       }
 
-      if (paragraph.length > maxChars) {
-        const chunks = paragraph.match(new RegExp(`.{1,${Math.max(420, maxChars - 160)}}(\\s|$)`, "g")) || [paragraph];
+      if (plainParagraph.length > maxChars) {
+        const chunks = plainParagraph.match(new RegExp(`.{1,${Math.max(420, maxChars - 160)}}(\\s|$)`, "g")) || [plainParagraph];
         chunks.forEach((chunk, chunkIndex) => {
           if (page.paragraphs.length && page.charCount + chunk.length > maxChars) {
             pages.push(page);
             page = createPage(chapter, chapterIndex, false, paragraphIndex);
           }
-          page.paragraphs.push(chunk.trim());
+          page.paragraphs.push(escapeHtml(chunk.trim()));
           page.charCount += chunk.length + 90;
           if (chunkIndex < chunks.length - 1) {
             pages.push(page);
@@ -598,7 +764,7 @@ function estimatePaginateBook(book) {
 function pageHtml(page) {
   const title = page.startsChapter ? `<h2>${escapeHtml(page.chapterTitle)}</h2>` : "";
   const paragraphs = page.paragraphs
-    .map((paragraph) => `<p${isDialogueParagraph(paragraph) ? ' class="dialogue-line"' : ""}>${escapeHtml(paragraph)}</p>`)
+    .map((paragraph) => `<p${isDialogueParagraph(paragraph) ? ' class="dialogue-line"' : ""}>${sanitizeRichHtml(paragraph)}</p>`)
     .join("");
 
   return `
@@ -652,14 +818,15 @@ function measuredPaginateBook(book) {
       }
 
       if (overflowsPage(measurer)) {
-        const maxChars = Math.max(420, Math.floor(paragraph.length * 0.72));
+        const plainParagraph = paragraphPlainText(paragraph);
+        const maxChars = Math.max(420, Math.floor(plainParagraph.length * 0.72));
         page.paragraphs.pop();
         if (page.paragraphs.length) pages.push(page);
 
-        const chunks = paragraph.match(new RegExp(`.{1,${maxChars}}(\\s|$)`, "g")) || [paragraph];
+        const chunks = plainParagraph.match(new RegExp(`.{1,${maxChars}}(\\s|$)`, "g")) || [plainParagraph];
         chunks.forEach((chunk) => {
           const chunkPage = createPage(chapter, chapterIndex, false, paragraphIndex);
-          chunkPage.paragraphs.push(chunk.trim());
+          chunkPage.paragraphs.push(escapeHtml(chunk.trim()));
           pages.push(chunkPage);
         });
         page = createPage(chapter, chapterIndex, false, paragraphIndex + 1);
@@ -681,6 +848,37 @@ function paginateBook(book, options = {}) {
 
 function findChapterStartPage(pages, chapterId) {
   return Math.max(0, pages.findIndex((page) => page.chapterId === chapterId));
+}
+
+function isSpecialBookSection(chapter) {
+  const title = (chapter.title || "").trim();
+  return /^prologue$/i.test(title) || /^epilogue$/i.test(title) || /^epilogue$/i.test(title.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+}
+
+function formatBookSectionStats(book) {
+  const hasPrologue = book.chapters.some((chapter) => /^prologue$/i.test((chapter.title || "").trim()));
+  const hasEpilogue = book.chapters.some((chapter) => /^epilogue$/i.test((chapter.title || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
+  const extraSpecialCount = book.chapters.filter((chapter) => isSpecialBookSection(chapter)).length - Number(hasPrologue) - Number(hasEpilogue);
+  const chapterCount = Math.max(0, book.chapters.length - book.chapters.filter(isSpecialBookSection).length);
+  const parts = [];
+
+  if (hasPrologue) {
+    parts.push("Prologue");
+  }
+
+  if (chapterCount) {
+    parts.push(`${chapterCount} chapitre${chapterCount > 1 ? "s" : ""}`);
+  }
+
+  if (hasEpilogue) {
+    parts.push("Épilogue");
+  }
+
+  if (extraSpecialCount > 0) {
+    parts.push(`${extraSpecialCount} section${extraSpecialCount > 1 ? "s" : ""}`);
+  }
+
+  return parts.length ? parts.join(" + ") : "Aucun chapitre";
 }
 
 function renderBookGrid() {
@@ -718,7 +916,7 @@ function renderBookGrid() {
     node.querySelector(".book-author").textContent = book.author || "Auteur inconnu";
     node.querySelector(".book-title").textContent = book.title;
     node.querySelector(".book-summary").textContent = book.summary || "Aucun résumé pour le moment.";
-    node.querySelector(".book-stats").textContent = `${book.chapters.length} chapitre${book.chapters.length > 1 ? "s" : ""} · ${pageCount} page${pageCount > 1 ? "s" : ""}`;
+    node.querySelector(".book-stats").textContent = `${formatBookSectionStats(book)} · ${pageCount} page${pageCount > 1 ? "s" : ""}`;
     node.querySelector(".read-book").addEventListener("click", () => openReader(book.id));
     node.querySelector(".edit-book").addEventListener("click", () => editBook(book.id));
     grid.appendChild(node);
@@ -822,7 +1020,7 @@ function validateChapters(chapters) {
     return "Ajoute au moins un chapitre ou un bloc de texte.";
   }
 
-  const emptyChapter = chapters.find((chapter) => !chapter.content.trim());
+  const emptyChapter = chapters.find((chapter) => !richContentToPlainText(chapter.content).trim());
   if (emptyChapter) {
     return `Le chapitre "${emptyChapter.title}" est vide. Ajoute du contenu ou supprime-le.`;
   }
@@ -1174,7 +1372,7 @@ function renderPage(container, page, index, book) {
   const paragraphs = page.paragraphs
     .map((paragraph) => {
       const className = isDialogueParagraph(paragraph) ? ' class="dialogue-line"' : "";
-      return `<p${className}>${escapeHtml(paragraph)}</p>`;
+      return `<p${className}>${sanitizeRichHtml(paragraph)}</p>`;
     })
     .join("");
 
@@ -1188,7 +1386,7 @@ function renderPage(container, page, index, book) {
 }
 
 function isDialogueParagraph(paragraph) {
-  const text = paragraph.trim();
+  const text = paragraphPlainText(paragraph).trim();
   return (
     /^[-–—]\s+\S/.test(text) ||
     /^["«“]\s*[-–—]?\s*\S/.test(text) ||
@@ -1213,7 +1411,7 @@ function renderToc(book) {
 
 function findPageForParagraph(chapterId, paragraphText) {
   const pageIndex = state.pages.findIndex((page) =>
-    page.chapterId === chapterId && page.paragraphs.some((paragraph) => paragraph.includes(paragraphText.slice(0, 80)))
+    page.chapterId === chapterId && page.paragraphs.some((paragraph) => paragraphPlainText(paragraph).includes(paragraphText.slice(0, 80)))
   );
   return Math.max(0, pageIndex);
 }
@@ -1229,12 +1427,13 @@ function renderBookSearchResults() {
   const results = [];
   book.chapters.forEach((chapter) => {
     paragraphsFromContent(chapter.content).forEach((paragraph) => {
-      const index = paragraph.toLowerCase().indexOf(query);
+      const plainParagraph = paragraphPlainText(paragraph);
+      const index = plainParagraph.toLowerCase().indexOf(query);
       if (index < 0 || results.length >= 8) return;
       results.push({
         chapter,
-        paragraph,
-        excerpt: paragraph.slice(Math.max(0, index - 48), index + query.length + 76),
+        paragraph: plainParagraph,
+        excerpt: plainParagraph.slice(Math.max(0, index - 48), index + query.length + 76),
       });
     });
   });
@@ -1521,6 +1720,7 @@ function bindEvents() {
   byId("add-empty-chapter").addEventListener("click", addEmptyChapter);
   byId("chapter-title").addEventListener("input", updateCurrentChapterDraft);
   byId("chapter-content").addEventListener("input", updateCurrentChapterDraft);
+  byId("chapter-content").addEventListener("paste", handleRichEditorPaste);
   byId("save-chapter").addEventListener("click", saveCurrentChapter);
   byId("delete-chapter").addEventListener("click", deleteCurrentChapter);
   byId("move-chapter-up").addEventListener("click", () => moveCurrentChapter(-1));
