@@ -40,6 +40,9 @@ const state = {
   db: null,
 };
 
+const pageCountCache = new Map();
+let chapterSourceRichHtml = "";
+
 function readJsonStorage(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key)) || fallback;
@@ -298,6 +301,10 @@ function sanitizeRichHtml(html) {
       if (child.nodeType !== Node.ELEMENT_NODE) return;
 
       const tagName = child.tagName.toUpperCase();
+      if (["STYLE", "SCRIPT", "META", "LINK", "TITLE", "HEAD", "XML"].includes(tagName)) {
+        return;
+      }
+
       if (richInlineTags.has(tagName)) {
         const normalizedTag = tagName === "B" ? "strong" : tagName === "I" ? "em" : tagName.toLowerCase();
         const cleanInline = document.createElement(normalizedTag);
@@ -369,12 +376,27 @@ function handleRichEditorPaste(event) {
   updateCurrentChapterDraft();
 }
 
+function handleChapterSourcePaste(event) {
+  const html = event.clipboardData?.getData("text/html");
+  const text = event.clipboardData?.getData("text/plain");
+
+  if (!html) {
+    chapterSourceRichHtml = "";
+    return;
+  }
+
+  event.preventDefault();
+  chapterSourceRichHtml = sanitizeRichHtml(html);
+  byId("chapter-source").value = richContentToPlainText(chapterSourceRichHtml) || text || "";
+  updateImportPreview();
+}
+
 function normalizeTitle(line) {
-  return line.replace(/^#+\s*/, "").trim();
+  return line.replace(/^#+\s*/, "").replace(/\s+/g, " ").trim();
 }
 
 function isChapterHeading(line) {
-  const text = line.trim();
+  const text = line.replace(/\s+/g, " ").trim();
   return (
     /^#{1,3}\s+\S+/.test(text) ||
     /^prologue$/i.test(text) ||
@@ -420,6 +442,77 @@ function parseChapters(source) {
 
   pushCurrent();
   return chapters.filter((chapter) => chapter.title || chapter.content);
+}
+
+function htmlFragmentToText(html) {
+  const fragment = document.createElement("div");
+  fragment.innerHTML = html;
+  return fragment.textContent || "";
+}
+
+function getRichImportBlocks(html) {
+  return paragraphsFromContent(sanitizeRichHtml(html)).map((block) => ({
+    html: block,
+    text: htmlFragmentToText(block).replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim(),
+  })).filter((block) => block.text);
+}
+
+function isStandaloneChapterLabel(text) {
+  return /^(chapitre|chapter)$/i.test(text.trim());
+}
+
+function isChapterNumber(text) {
+  return /^(\d+|[ivxlcdm]+|premier)$/i.test(text.trim());
+}
+
+function parseRichChapters(sourceHtml) {
+  const blocks = getRichImportBlocks(sourceHtml);
+  const chapters = [];
+  let current = null;
+  let buffer = [];
+
+  const pushCurrent = () => {
+    if (!current && buffer.length) {
+      current = { title: "Texte" };
+    }
+
+    if (!current) return;
+
+    chapters.push({
+      id: crypto.randomUUID(),
+      title: current.title,
+      content: buffer.map((block) => `<p>${block.html}</p>`).join(""),
+    });
+    buffer = [];
+  };
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const nextBlock = blocks[index + 1];
+    const headingText = isStandaloneChapterLabel(block.text) && nextBlock && isChapterNumber(nextBlock.text)
+      ? `${block.text} ${nextBlock.text}`
+      : block.text;
+
+    if (isChapterHeading(headingText)) {
+      pushCurrent();
+      current = { title: normalizeTitle(headingText) };
+      if (headingText !== block.text) index += 1;
+      continue;
+    }
+
+    buffer.push(block);
+  }
+
+  pushCurrent();
+  return chapters.filter((chapter) => chapter.title || richContentToPlainText(chapter.content));
+}
+
+function getChaptersFromSource() {
+  if (chapterSourceRichHtml) {
+    return parseRichChapters(chapterSourceRichHtml);
+  }
+
+  return parseChapters(byId("chapter-source").value);
 }
 
 function cloneChapter(chapter, fallbackIndex = 0) {
@@ -590,7 +683,7 @@ function moveCurrentChapter(direction) {
 }
 
 function importChaptersFromSource(mode) {
-  const chapters = parseChapters(byId("chapter-source").value);
+  const chapters = getChaptersFromSource();
   if (!chapters.length) {
     alert("Aucun chapitre n'a ete detecte dans le texte importe.");
     return;
@@ -784,13 +877,18 @@ function pageHtml(page) {
 function createPaginationMeasurer(book) {
   const samplePage = byId("right-page") || byId("left-page");
   const bounds = samplePage?.getBoundingClientRect();
-  if (!bounds?.width || !bounds?.height) return null;
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth || 1020;
+  const shellWidth = Math.min(1440, Math.max(320, viewportWidth - 32));
+  const stageWidth = viewportWidth <= 1080 ? shellWidth : Math.max(320, shellWidth - 360);
+  const fallbackWidth = viewportWidth <= 760 ? Math.min(620, Math.max(320, viewportWidth - 20)) : Math.min(1020, stageWidth) / 2;
+  const width = bounds?.width || fallbackWidth;
+  const height = bounds?.height || (viewportWidth <= 760 ? 620 : 680);
 
   const measurer = document.createElement("article");
   measurer.className = "paper-page pagination-measurer";
-  measurer.style.width = `${bounds.width}px`;
-  measurer.style.minHeight = `${bounds.height}px`;
-  measurer.style.height = `${bounds.height}px`;
+  measurer.style.width = `${width}px`;
+  measurer.style.minHeight = `${height}px`;
+  measurer.style.height = `${height}px`;
   measurer.style.setProperty("--reader-font-size", `${state.readerPrefs.fontSize || book.fontSize || 18}px`);
   measurer.style.setProperty("--reader-line-height", state.readerPrefs.lineHeight || 1.58);
   document.body.appendChild(measurer);
@@ -850,6 +948,28 @@ function measuredPaginateBook(book) {
 
 function paginateBook(book, options = {}) {
   return options.measured ? measuredPaginateBook(book) : estimatePaginateBook(book);
+}
+
+function getBookVersion(book) {
+  return [
+    book.updatedAt || "",
+    book.fontSize || "",
+    book.density || "",
+    state.readerPrefs.fontSize,
+    state.readerPrefs.lineHeight,
+    book.chapters.map((chapter) => `${chapter.id}:${chapter.title}:${chapter.content.length}`).join("|"),
+  ].join("::");
+}
+
+function getMeasuredPageCount(book) {
+  const cacheKey = `${book.id}:${getBookVersion(book)}`;
+  const cached = pageCountCache.get(cacheKey);
+  if (cached) return cached;
+
+  const count = paginateBook(book, { measured: true }).length;
+  pageCountCache.clear();
+  pageCountCache.set(cacheKey, count);
+  return count;
 }
 
 function findChapterStartPage(pages, chapterId) {
@@ -915,7 +1035,7 @@ function renderBookGrid() {
 
   books.forEach((book) => {
     const node = template.content.firstElementChild.cloneNode(true);
-    const pageCount = paginateBook(book).length;
+    const pageCount = getMeasuredPageCount(book);
     const cover = node.querySelector(".cover-button");
     cover.style.backgroundImage = coverBackground(book);
     cover.addEventListener("click", () => openReader(book.id));
@@ -987,7 +1107,7 @@ async function handleCoverFileChange(event) {
 }
 
 function updateImportPreview() {
-  const importedChapters = parseChapters(byId("chapter-source").value);
+  const importedChapters = getChaptersFromSource();
   const chapters = state.editorChapters;
   const words = chapters.reduce((total, chapter) => total + chapterWordCount(chapter), 0);
   const importPreview = byId("import-chapter-preview");
@@ -1722,7 +1842,11 @@ function bindEvents() {
     byId(id).addEventListener("input", () => markEditorDirty());
     byId(id).addEventListener("change", () => markEditorDirty());
   });
-  byId("chapter-source").addEventListener("input", updateImportPreview);
+  byId("chapter-source").addEventListener("input", () => {
+    chapterSourceRichHtml = "";
+    updateImportPreview();
+  });
+  byId("chapter-source").addEventListener("paste", handleChapterSourcePaste);
   byId("add-empty-chapter").addEventListener("click", addEmptyChapter);
   byId("chapter-title").addEventListener("input", updateCurrentChapterDraft);
   byId("chapter-content").addEventListener("input", updateCurrentChapterDraft);
@@ -1742,6 +1866,7 @@ function bindEvents() {
   byId("book-cover-file").addEventListener("change", handleCoverFileChange);
   byId("reset-editor").addEventListener("click", () => fillForm(null));
   byId("load-example").addEventListener("click", () => {
+    chapterSourceRichHtml = "";
     byId("chapter-source").value = sampleText;
     importChaptersFromSource("replace");
   });
@@ -1756,7 +1881,7 @@ function bindEvents() {
   byId("bookmark-button").addEventListener("click", setBookmark);
   byId("resume-button").addEventListener("click", () => {
     const book = getBook(state.activeBookId);
-    if (book) goToPage(getReadingProgress(book.id) ?? book.bookmarkPage ?? 0);
+    if (book) goToPage(book.bookmarkPage ?? getReadingProgress(book.id) ?? 0);
   });
   byId("reader-settings-toggle").addEventListener("click", () => {
     byId("reader-settings").hidden = !byId("reader-settings").hidden;
@@ -1795,12 +1920,16 @@ function bindEvents() {
 async function init() {
   loadReaderPrefs();
   await loadBooks();
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
   state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
   fillForm(null);
   bindEvents();
   syncReaderPrefsControls();
-  renderBookGrid();
   if (state.activeBookId) openReader(state.activeBookId);
+  renderBookGrid();
   showView("library");
 }
 
