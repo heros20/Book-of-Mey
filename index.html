@@ -151,11 +151,15 @@
                   </label>
                   <label>
                     Contenu du chapitre
-                    <textarea
+                    <div
+                      class="rich-text-editor"
                       id="chapter-content"
+                      contenteditable="true"
+                      role="textbox"
+                      aria-multiline="true"
                       spellcheck="true"
-                      placeholder="Premier paragraphe..."
-                    ></textarea>
+                      data-placeholder="Premier paragraphe..."
+                    ></div>
                   </label>
                   <div class="chapter-actions">
                     <button class="primary-action" id="save-chapter" type="button">Enregistrer le chapitre</button>
@@ -241,7 +245,7 @@
               </label>
 
               <div class="toc">
-                <h2>Chapitres</h2>
+                <h2>Sommaire</h2>
                 <div id="toc-list"></div>
               </div>
             </aside>
