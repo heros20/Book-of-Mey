@@ -271,6 +271,14 @@
       </main>
     </div>
 
+    <div class="app-busy-overlay" id="app-busy" role="status" aria-live="polite" aria-atomic="true" hidden>
+      <div class="busy-panel">
+        <span class="busy-spinner" aria-hidden="true"></span>
+        <strong id="app-busy-title">Traitement en cours</strong>
+        <span id="app-busy-message">Merci de patienter.</span>
+      </div>
+    </div>
+
     <template id="book-card-template">
       <article class="book-card">
         <button class="cover-button" type="button"></button>
