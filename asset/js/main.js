@@ -681,7 +681,13 @@ function paragraphsFromContent(content) {
       if (node.tagName.toUpperCase() === "P") {
         flushInlineParts();
         const paragraph = node.innerHTML.trim();
-        if (paragraph) blocks.push(paragraph);
+        if (paragraph) {
+          const paragraphParts = paragraph
+            .split(/<br\s*\/?>/i)
+            .map((part) => part.trim())
+            .filter(Boolean);
+          blocks.push(...(paragraphParts.length > 1 ? paragraphParts : [paragraph]));
+        }
         return;
       }
 
