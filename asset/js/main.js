@@ -3,7 +3,20 @@ const ACTIVE_BOOK_KEY = "book-of-mey-active-book";
 const READING_PROGRESS_KEY = "book-of-mey-reading-progress";
 const READER_PREFS_KEY = "book-of-mey-reader-prefs";
 const COVER_BUCKET = "covers";
+const PAGE_FLIP_SOUND = "asset/sound/page-flip.mp3";
+const AMBIANCE_VOLUME = 0.35;
+const AMBIANCE_FADE_MS = 1400;
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
+
+// Ajoute ici une entrée par fichier d’ambiance placé dans asset/sound/.
+const AMBIANCE_TRACKS = [
+  {
+    id: "ambiance",
+    label: "Ambiance douce",
+    src: "asset/sound/ambiance.mp3",
+    volume: AMBIANCE_VOLUME,
+  },
+];
 
 const densityMap = {
   comfortable: 980,
@@ -31,6 +44,8 @@ const state = {
     fontSize: 18,
     lineHeight: 1.58,
     theme: "paper",
+    soundEffects: true,
+    ambianceTrack: "ambiance",
   },
   touchStartX: 0,
   touchStartY: 0,
@@ -39,12 +54,18 @@ const state = {
   isBusy: false,
   busyDepth: 0,
   lastWheelTurnAt: 0,
+  pageFlipAudio: null,
+  ambianceAudio: null,
+  ambianceFadeFrame: 0,
+  activeAmbianceTrackId: null,
+  isAmbianceEnabled: false,
   storageMode: "local",
   db: null,
 };
 
 let chapterSourceRichHtml = "";
 let editorMaintenanceTimer = 0;
+let chapterSaveFeedbackTimer = 0;
 
 function readJsonStorage(key, fallback) {
   try {
@@ -70,6 +91,7 @@ function loadReaderPrefs() {
     ...state.readerPrefs,
     ...readJsonStorage(READER_PREFS_KEY, {}),
   };
+  state.readerPrefs.ambianceTrack = getAmbianceTrack(state.readerPrefs.ambianceTrack).id;
 }
 
 function saveReaderPrefs() {
@@ -80,6 +102,8 @@ function syncReaderPrefsControls() {
   byId("reader-font-size").value = state.readerPrefs.fontSize;
   byId("reader-line-height").value = Math.round(state.readerPrefs.lineHeight * 100);
   byId("reader-theme").value = state.readerPrefs.theme;
+  renderAmbianceTrackOptions();
+  updateSoundEffectsButton();
 }
 
 function applyReaderPrefs() {
@@ -95,19 +119,19 @@ const sampleText = `Prologue
 
 Je ne me souviens pas exactement du moment où tout a commencé. Il reste seulement des images, des silences, et cette impression que la route avait été tracée avant même que je comprenne où poser les pieds.
 
-La nuit était tombée quand on m'a annoncé ton départ. Personne n'avait l'air inquiet. Moi, je comptais les heures.
+La nuit était tombée quand on m’a annoncé ton départ. Personne n’avait l’air inquiet. Moi, je comptais les heures.
 
 Chapitre 1 - Le contrat
 
-La journée s'annonçait longue. Deux missions, un détour chez Ignis, et cette sensation désagréable qu'une pièce du décor avait changé pendant mon sommeil.
+La journée s’annonçait longue. Deux missions, un détour chez Ignis, et cette sensation désagréable qu’une pièce du décor avait changé pendant mon sommeil.
 
-Je suis parti vers la vieille ville avant l'aube. Les rues étaient encore humides, presque vides, et ma moto faisait trop de bruit dans le silence.
+Je suis parti vers la vieille ville avant l’aube. Les rues étaient encore humides, presque vides, et ma moto faisait trop de bruit dans le silence.
 
 Chapitre 2 - Le retour
 
-Quand je suis rentré, les lumières de la maison étaient allumées. Ce détail aurait dû me rassurer. Au lieu de ça, il m'a glacé.
+Quand je suis rentré, les lumières de la maison étaient allumées. Ce détail aurait dû me rassurer. Au lieu de ça, il m’a glacé.
 
-Il y avait des voix dans le grand salon, des voix basses, trop contrôlées. J'ai compris avant même d'ouvrir la porte que rien ne serait simple.`;
+Il y avait des voix dans le grand salon, des voix basses, trop contrôlées. J’ai compris avant même d’ouvrir la porte que rien ne serait simple.`;
 
 function createSeedBook() {
   const chapters = parseChapters(sampleText);
@@ -136,6 +160,28 @@ function initDatabase() {
   state.storageMode = "supabase";
 }
 
+function getChapterTitleNumber(title) {
+  return Number(String(title || "").match(/^chapitre\s+(\d+)\b/i)?.[1] || NaN);
+}
+
+function sortChapterRows(chapters) {
+  const rows = [...chapters];
+  const positions = rows.map((chapter) => Number(chapter.position)).filter(Number.isFinite);
+  const allPositionsAreNegative = positions.length === rows.length && positions.every((position) => position < 0);
+  const looksLikeLegacyTemporaryOrder =
+    allPositionsAreNegative &&
+    Math.max(...positions) === -1 &&
+    Math.min(...positions) >= -positions.length;
+
+  rows.sort((a, b) => looksLikeLegacyTemporaryOrder ? b.position - a.position : a.position - b.position);
+
+  const titleNumbers = rows.map((chapter) => getChapterTitleNumber(chapter.title));
+  const allTitlesAreNumbered = titleNumbers.length >= 3 && titleNumbers.every(Number.isFinite);
+  const titleOrderIsDescending = allTitlesAreNumbered && titleNumbers.every((number, index) => index === 0 || number < titleNumbers[index - 1]);
+
+  return titleOrderIsDescending ? rows.reverse() : rows;
+}
+
 function mapBookRow(row, chapters) {
   return {
     id: row.id,
@@ -147,13 +193,12 @@ function mapBookRow(row, chapters) {
     density: row.density || "classic",
     bookmarkPage: row.bookmark_page || 0,
     updatedAt: row.updated_at,
-    chapters: chapters
-      .filter((chapter) => chapter.book_id === row.id)
-      .sort((a, b) => a.position - b.position)
+    chapters: sortChapterRows(chapters.filter((chapter) => chapter.book_id === row.id))
       .map((chapter) => ({
         id: chapter.id,
         title: chapter.title,
         content: chapter.content || "",
+        illustration: chapter.illustration || "",
       })),
   };
 }
@@ -273,6 +318,10 @@ function showView(viewName) {
   document.querySelectorAll("[data-view-target]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.viewTarget === viewName);
   });
+
+  if (viewName !== "reader") {
+    stopAmbiance();
+  }
 }
 
 function getBook(id) {
@@ -286,7 +335,7 @@ function setEditorStatus(message, tone = "neutral") {
   status.dataset.tone = tone;
 }
 
-function markEditorDirty(message = "Modifications non enregistrees.") {
+function markEditorDirty(message = "Modifications non enregistrées.") {
   state.editorDirty = true;
   setEditorStatus(message, "dirty");
 }
@@ -294,6 +343,22 @@ function markEditorDirty(message = "Modifications non enregistrees.") {
 function markEditorSaved(message = "Aucune modification en attente.") {
   state.editorDirty = false;
   setEditorStatus(message, "saved");
+}
+
+function showChapterSaveFeedback() {
+  const button = byId("save-chapter");
+  if (!button) return;
+
+  window.clearTimeout(chapterSaveFeedbackTimer);
+  button.classList.add("is-confirmed");
+  button.textContent = "Chapitre validé";
+  setEditorStatus("Chapitre validé localement. Pense à enregistrer le livre.", "chapter-saved");
+
+  chapterSaveFeedbackTimer = window.setTimeout(() => {
+    button.classList.remove("is-confirmed");
+    button.textContent = "Enregistrer le chapitre";
+    setEditorStatus("Chapitre validé localement. Livre non enregistré.", "dirty");
+  }, 1800);
 }
 
 function hasHtmlMarkup(value) {
@@ -697,6 +762,7 @@ function cloneChapter(chapter, fallbackIndex = 0) {
     id: chapter.id || crypto.randomUUID(),
     title: (chapter.title || `Chapitre ${fallbackIndex + 1}`).trim(),
     content: chapter.content || "",
+    illustration: chapter.illustration || "",
   };
 }
 
@@ -746,6 +812,18 @@ function chapterWordCount(chapter) {
   return richContentToPlainText(chapter.content).split(/\s+/).filter(Boolean).length;
 }
 
+function setChapterIllustrationPreview(value) {
+  const preview = byId("chapter-illustration-preview");
+  if (!preview) return;
+  preview.style.backgroundImage = value ? `url(${JSON.stringify(value)})` : "";
+}
+
+function chapterMetaText(chapter) {
+  const words = chapterWordCount(chapter);
+  const suffix = chapter.illustration ? " · illustration" : "";
+  return `${words} mot${words > 1 ? "s" : ""}${suffix}`;
+}
+
 function selectChapter(chapterId) {
   state.editingChapterId = chapterId;
   renderChapterControl();
@@ -758,6 +836,8 @@ function renderChapterControl() {
   const count = byId("chapter-count");
   const titleInput = byId("chapter-title");
   const contentInput = byId("chapter-content");
+  const illustrationFileInput = byId("chapter-illustration-file");
+  const removeIllustrationButton = byId("remove-chapter-illustration");
   const deleteButton = byId("delete-chapter");
   const moveUpButton = byId("move-chapter-up");
   const moveDownButton = byId("move-chapter-down");
@@ -768,7 +848,7 @@ function renderChapterControl() {
   count.textContent = `${state.editorChapters.length}`;
 
   if (!state.editorChapters.length) {
-    list.innerHTML = '<div class="chapter-empty">Aucun chapitre. Cree un chapitre ou importe un texte complet.</div>';
+    list.innerHTML = '<div class="chapter-empty">Aucun chapitre. Crée un chapitre ou importe un texte complet.</div>';
   } else {
     state.editorChapters.forEach((item, itemIndex) => {
       const button = document.createElement("button");
@@ -778,7 +858,7 @@ function renderChapterControl() {
       button.innerHTML = `
         <span>${itemIndex + 1}</span>
         <strong>${escapeHtml(item.title || `Chapitre ${itemIndex + 1}`)}</strong>
-        <small>${chapterWordCount(item)} mot${chapterWordCount(item) > 1 ? "s" : ""}</small>
+        <small>${escapeHtml(chapterMetaText(item))}</small>
       `;
       button.addEventListener("click", () => selectChapter(item.id));
       list.appendChild(button);
@@ -787,9 +867,13 @@ function renderChapterControl() {
 
   titleInput.value = chapter?.title || "";
   contentInput.innerHTML = normalizeRichContent(chapter?.content || "");
+  if (illustrationFileInput) illustrationFileInput.value = "";
+  setChapterIllustrationPreview(chapter?.illustration || "");
   titleInput.disabled = !chapter;
   contentInput.contentEditable = chapter ? "true" : "false";
   contentInput.setAttribute("aria-disabled", chapter ? "false" : "true");
+  if (illustrationFileInput) illustrationFileInput.disabled = !chapter;
+  if (removeIllustrationButton) removeIllustrationButton.disabled = !chapter || !chapter.illustration;
   deleteButton.disabled = !chapter;
   moveUpButton.disabled = !chapter || index <= 0;
   moveDownButton.disabled = !chapter || index < 0 || index >= state.editorChapters.length - 1;
@@ -800,13 +884,14 @@ function addEmptyChapter() {
     id: crypto.randomUUID(),
     title: `Chapitre ${state.editorChapters.length + 1}`,
     content: "",
+    illustration: "",
   };
   state.editorChapters.push(chapter);
   state.editingChapterId = chapter.id;
   syncChapterSource();
   renderChapterControl();
   updateImportPreview();
-  markEditorDirty("Nouveau chapitre non enregistre.");
+  markEditorDirty("Nouveau chapitre non enregistré.");
   byId("chapter-title").focus();
 }
 
@@ -830,7 +915,8 @@ function saveCurrentChapter() {
   syncChapterSource();
   renderChapterControl();
   updateImportPreview();
-  markEditorDirty("Chapitre modifie, livre non enregistre.");
+  markEditorDirty("Chapitre modifié, livre non enregistré.");
+  showChapterSaveFeedback();
   return true;
 }
 
@@ -844,7 +930,7 @@ function updateCurrentChapterDraft() {
     content: readRichEditorContent(),
   };
   scheduleEditorMaintenance();
-  markEditorDirty("Chapitre modifie, livre non enregistre.");
+  markEditorDirty("Chapitre modifié, livre non enregistré.");
 }
 
 function deleteCurrentChapter() {
@@ -852,14 +938,14 @@ function deleteCurrentChapter() {
   if (index < 0) return;
 
   const chapter = state.editorChapters[index];
-  if (!confirm(`Supprimer le chapitre "${chapter.title}" ?`)) return;
+  if (!confirm(`Supprimer le chapitre « ${chapter.title} » ?`)) return;
 
   state.editorChapters.splice(index, 1);
   state.editingChapterId = state.editorChapters[Math.min(index, state.editorChapters.length - 1)]?.id || null;
   syncChapterSource();
   renderChapterControl();
   updateImportPreview();
-  markEditorDirty("Chapitre supprime, livre non enregistre.");
+  markEditorDirty("Chapitre supprimé, livre non enregistré.");
 }
 
 function moveCurrentChapter(direction) {
@@ -872,17 +958,17 @@ function moveCurrentChapter(direction) {
   syncChapterSource();
   renderChapterControl();
   updateImportPreview();
-  markEditorDirty("Ordre des chapitres modifie, livre non enregistre.");
+  markEditorDirty("Ordre des chapitres modifié, livre non enregistré.");
 }
 
 function importChaptersFromSource(mode) {
   const chapters = getChaptersFromSource();
   if (!chapters.length) {
-    alert("Aucun chapitre n'a ete detecte dans le texte importe.");
+    alert("Aucun chapitre n’a été détecté dans le texte importé.");
     return;
   }
 
-  if (mode === "replace" && state.editorChapters.length && !confirm("Remplacer tous les chapitres actuels par l'import ?")) {
+  if (mode === "replace" && state.editorChapters.length && !confirm("Remplacer tous les chapitres actuels par l’import ?")) {
     return;
   }
 
@@ -1008,6 +1094,24 @@ function createPage(chapter, chapterIndex, startsChapter, startParagraphIndex = 
   };
 }
 
+function createIllustrationPage(chapter, chapterIndex) {
+  return {
+    chapterId: chapter.id,
+    chapterIndex,
+    chapterTitle: chapter.title,
+    startsChapter: false,
+    paragraphs: [],
+    paragraphStart: Number.MAX_SAFE_INTEGER,
+    charCount: 0,
+    illustration: chapter.illustration || "",
+  };
+}
+
+function appendChapterIllustrationPage(pages, chapter, chapterIndex) {
+  if (!chapter.illustration) return;
+  pages.push(createIllustrationPage(chapter, chapterIndex));
+}
+
 function estimatePaginateBook(book) {
   const baseChars = densityMap[book.density] || densityMap.classic;
   const fontScale = Math.pow(18 / (book.fontSize || 18), 1.35);
@@ -1048,12 +1152,22 @@ function estimatePaginateBook(book) {
     });
 
     pages.push(page);
+    appendChapterIllustrationPage(pages, chapter, chapterIndex);
   });
 
   return pages.length ? pages : [{ chapterTitle: book.title, startsChapter: true, paragraphs: ["Aucun texte ajouté pour le moment."] }];
 }
 
 function pageHtml(page) {
+  if (page.illustration) {
+    return `
+      <figure class="chapter-illustration-page">
+        <img src="${escapeHtml(page.illustration)}" alt="${escapeHtml(`Illustration - ${page.chapterTitle || ""}`)}" />
+      </figure>
+      <span class="page-number">0</span>
+    `;
+  }
+
   const title = page.startsChapter ? `<h2>${escapeHtml(page.chapterTitle)}</h2>` : "";
   const paragraphs = page.paragraphs
     .map((paragraph) => `<p${isDialogueParagraph(paragraph) ? ' class="dialogue-line"' : ""}>${sanitizeRichHtml(paragraph)}</p>`)
@@ -1166,6 +1280,7 @@ function measuredPaginateBook(book) {
     if (page.paragraphs.length || !paragraphs.length) {
       pages.push(page);
     }
+    appendChapterIllustrationPage(pages, chapter, chapterIndex);
   });
 
   measurer.remove();
@@ -1183,7 +1298,7 @@ function getBookVersion(book) {
     book.density || "",
     state.readerPrefs.fontSize,
     state.readerPrefs.lineHeight,
-    book.chapters.map((chapter) => `${chapter.id}:${chapter.title}:${chapter.content.length}`).join("|"),
+    book.chapters.map((chapter) => `${chapter.id}:${chapter.title}:${chapter.content.length}:${chapter.illustration?.length || 0}`).join("|"),
   ].join("::");
 }
 
@@ -1276,7 +1391,7 @@ function setCoverPreview(value) {
   preview.style.backgroundImage = value ? `url(${JSON.stringify(value)})` : "";
 }
 
-async function compressCoverImage(file) {
+async function compressImageFile(file, maxWidth = 900, quality = 0.82) {
   const image = new Image();
   const objectUrl = URL.createObjectURL(file);
 
@@ -1286,7 +1401,6 @@ async function compressCoverImage(file) {
     image.src = objectUrl;
   });
 
-  const maxWidth = 900;
   const scale = Math.min(1, maxWidth / image.naturalWidth);
   const width = Math.round(image.naturalWidth * scale);
   const height = Math.round(image.naturalHeight * scale);
@@ -1297,7 +1411,15 @@ async function compressCoverImage(file) {
   context.drawImage(image, 0, 0, width, height);
   URL.revokeObjectURL(objectUrl);
 
-  return canvas.toDataURL("image/jpeg", 0.82);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+function compressCoverImage(file) {
+  return compressImageFile(file, 900, 0.82);
+}
+
+function compressChapterIllustration(file) {
+  return compressImageFile(file, 1600, 0.86);
 }
 
 async function handleCoverFileChange(event) {
@@ -1312,7 +1434,7 @@ async function handleCoverFileChange(event) {
     return;
   }
 
-  await withAppBusy("Préparation de la couverture...", async () => {
+  await withAppBusy("Préparation de la couverture…", async () => {
     try {
       coverUpload.dataUrl = await compressCoverImage(file);
       byId("book-cover").value = "";
@@ -1322,6 +1444,59 @@ async function handleCoverFileChange(event) {
       alert("Impossible de lire cette image.");
     }
   });
+}
+
+async function handleChapterIllustrationFileChange(event) {
+  if (state.isBusy) return;
+
+  const index = getEditingChapterIndex();
+  if (index < 0) return;
+
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    alert("Choisis un fichier image pour l’illustration.");
+    event.target.value = "";
+    return;
+  }
+
+  await withAppBusy("Préparation de l’illustration…", async () => {
+    try {
+      const illustration = await compressChapterIllustration(file);
+      state.editorChapters[index] = {
+        ...state.editorChapters[index],
+        title: byId("chapter-title").value.trim(),
+        content: readRichEditorContent(),
+        illustration,
+      };
+      setChapterIllustrationPreview(illustration);
+      renderChapterControl();
+      updateImportPreview();
+      markEditorDirty("Illustration ajoutée, livre non enregistré.");
+    } catch (error) {
+      console.error(error);
+      alert("Impossible de lire cette image.");
+    } finally {
+      event.target.value = "";
+    }
+  });
+}
+
+function removeChapterIllustration() {
+  const index = getEditingChapterIndex();
+  if (index < 0 || !state.editorChapters[index].illustration) return;
+
+  state.editorChapters[index] = {
+    ...state.editorChapters[index],
+    title: byId("chapter-title").value.trim(),
+    content: readRichEditorContent(),
+    illustration: "",
+  };
+  setChapterIllustrationPreview("");
+  renderChapterControl();
+  updateImportPreview();
+  markEditorDirty("Illustration retirée, livre non enregistré.");
 }
 
 function updateImportPreview() {
@@ -1336,7 +1511,7 @@ function updateImportPreview() {
     title: byId("book-title").value || "Aperçu",
   };
   const pages = chapters.length ? paginateBook(previewBook).length : 0;
-  byId("import-preview").textContent = `${chapters.length} chapitre${chapters.length > 1 ? "s" : ""} dans le livre - environ ${words} mots - ${pages} page${pages > 1 ? "s" : ""} estimee${pages > 1 ? "s" : ""} - ${importedChapters.length} chapitre${importedChapters.length > 1 ? "s" : ""} detecte${importedChapters.length > 1 ? "s" : ""} dans l'import`;
+  byId("import-preview").textContent = `${chapters.length} chapitre${chapters.length > 1 ? "s" : ""} dans le livre · environ ${words} mots · ${pages} page${pages > 1 ? "s" : ""} estimée${pages > 1 ? "s" : ""} · ${importedChapters.length} chapitre${importedChapters.length > 1 ? "s" : ""} détecté${importedChapters.length > 1 ? "s" : ""} dans l’import`;
   if (!importPreview) return;
 
   if (!byId("chapter-source").value.trim()) {
@@ -1345,7 +1520,7 @@ function updateImportPreview() {
   }
 
   if (!importedChapters.length) {
-    importPreview.innerHTML = '<p class="import-warning">Aucun chapitre detecte. Verifie que les titres commencent par Chapitre, Prologue, Epilogue ou #.</p>';
+    importPreview.innerHTML = '<p class="import-warning">Aucun chapitre détecté. Vérifie que les titres commencent par Chapitre, Prologue, Épilogue ou #.</p>';
     return;
   }
 
@@ -1364,12 +1539,28 @@ function validateChapters(chapters) {
     return "Ajoute au moins un chapitre ou un bloc de texte.";
   }
 
-  const emptyChapter = chapters.find((chapter) => !richContentToPlainText(chapter.content).trim());
+  const emptyChapter = chapters.find((chapter) => !richContentToPlainText(chapter.content).trim() && !chapter.illustration);
   if (emptyChapter) {
-    return `Le chapitre "${emptyChapter.title}" est vide. Ajoute du contenu ou supprime-le.`;
+    return `Le chapitre « ${emptyChapter.title} » est vide. Ajoute du contenu ou supprime-le.`;
   }
 
   return "";
+}
+
+function getBookSaveErrorMessage(error) {
+  const errorText = [error?.code, error?.message, error?.details, error?.hint]
+    .filter(Boolean)
+    .join(" ");
+
+  if (/illustration/i.test(errorText) && /(column|schema|PGRST204|cache)/i.test(errorText)) {
+    return "La base Supabase n’est pas à jour : applique la migration des illustrations, puis recharge la page.";
+  }
+
+  if (/bucket/i.test(errorText) && /not found/i.test(errorText)) {
+    return "Le bucket Supabase Storage « covers » n’existe pas encore : applique la migration des illustrations.";
+  }
+
+  return "Impossible d’enregistrer le livre dans la base de données.";
 }
 
 function readForm() {
@@ -1403,6 +1594,7 @@ function toChapterRows(bookId, chapters) {
     position: index + 1,
     title: chapter.title,
     content: chapter.content,
+    illustration: chapter.illustration || "",
   }));
 }
 
@@ -1419,15 +1611,15 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
-async function uploadCoverToDatabase(bookId, cover) {
-  if (!cover?.startsWith("data:image/") || !state.db?.storage) {
-    return cover;
+async function uploadImageToDatabase(bookId, image, prefix) {
+  if (!image?.startsWith("data:image/") || !state.db?.storage) {
+    return image;
   }
 
   try {
-    const blob = dataUrlToBlob(cover);
+    const blob = dataUrlToBlob(image);
     const extension = blob.type.split("/")[1] || "jpg";
-    const path = `${bookId}/cover-${Date.now()}.${extension}`;
+    const path = `${bookId}/${prefix}-${Date.now()}-${crypto.randomUUID()}.${extension}`;
     const { error } = await state.db.storage
       .from(COVER_BUCKET)
       .upload(path, blob, { contentType: blob.type, upsert: true });
@@ -1435,11 +1627,28 @@ async function uploadCoverToDatabase(bookId, cover) {
     if (error) throw error;
 
     const { data } = state.db.storage.from(COVER_BUCKET).getPublicUrl(path);
-    return data.publicUrl || cover;
+    return data.publicUrl || image;
   } catch (error) {
-    console.warn("Impossible d'envoyer la couverture vers Supabase Storage, conservation en base64.", error);
-    return cover;
+    console.warn("Impossible d’envoyer l’image vers Supabase Storage, conservation en base64.", error);
+    return image;
   }
+}
+
+function uploadCoverToDatabase(bookId, cover) {
+  return uploadImageToDatabase(bookId, cover, "cover");
+}
+
+async function uploadChapterIllustrationsToDatabase(bookId, chapters) {
+  const uploadedChapters = [];
+
+  for (const [index, chapter] of chapters.entries()) {
+    uploadedChapters.push({
+      ...chapter,
+      illustration: await uploadImageToDatabase(bookId, chapter.illustration, `chapter-${index + 1}-illustration`),
+    });
+  }
+
+  return uploadedChapters;
 }
 
 async function saveChaptersToDatabase(bookId, chapters, existingBook = null) {
@@ -1447,15 +1656,16 @@ async function saveChaptersToDatabase(bookId, chapters, existingBook = null) {
   const keepIds = chapterRows.map((chapter) => chapter.id);
 
   if (existingBook?.chapters?.length) {
-    const positionUpdates = await Promise.all(existingBook.chapters.map((chapter, index) =>
-      state.db
-        .from("chapters")
-        .update({ position: -(index + 1) })
-        .eq("id", chapter.id)
-    ));
+    const temporaryPositionStart = -1000000000;
 
-    const positionError = positionUpdates.find((result) => result.error)?.error;
-    if (positionError) throw positionError;
+    for (const [index, chapter] of existingBook.chapters.entries()) {
+      const { error } = await state.db
+        .from("chapters")
+        .update({ position: temporaryPositionStart + index })
+        .eq("id", chapter.id);
+
+      if (error) throw error;
+    }
 
     const removedIds = existingBook.chapters
       .map((chapter) => chapter.id)
@@ -1511,7 +1721,8 @@ async function saveBookToDatabase(payload, existingBook = null) {
     if (error) throw error;
   }
 
-  await saveChaptersToDatabase(savedBook.id, payload.chapters, existingBook);
+  const chapters = await uploadChapterIllustrationsToDatabase(savedBook.id, payload.chapters);
+  await saveChaptersToDatabase(savedBook.id, chapters, existingBook);
   await loadBooksFromDatabase();
   return savedBook.id;
 }
@@ -1529,7 +1740,7 @@ function fillForm(book) {
   byId("page-density").value = book?.density || "classic";
   setEditorChapters(book?.chapters || []);
   byId("delete-book").hidden = !book;
-  markEditorSaved(book ? "Livre charge. Aucune modification en attente." : "Nouveau livre pret.");
+  markEditorSaved(book ? "Livre chargé. Aucune modification en attente." : "Nouveau livre prêt.");
 }
 
 async function saveForm(event) {
@@ -1549,7 +1760,7 @@ async function saveForm(event) {
   }
 
   const submitButton = event.submitter || byId("book-form").querySelector('button[type="submit"]');
-  await withAppBusy("Enregistrement du livre...", async () => {
+  await withAppBusy("Enregistrement du livre…", async () => {
   submitButton.disabled = true;
 
   try {
@@ -1580,11 +1791,11 @@ async function saveForm(event) {
     }
 
     renderBookGrid();
-    markEditorSaved("Livre enregistre.");
+    markEditorSaved("Livre enregistré.");
     openReader(state.activeBookId);
   } catch (error) {
     console.error(error);
-    alert("Impossible d'enregistrer le livre dans la base de données.");
+    alert(getBookSaveErrorMessage(error));
   } finally {
     submitButton.disabled = false;
   }
@@ -1602,9 +1813,9 @@ async function deleteCurrentBook() {
   if (state.isBusy) return;
   if (!state.editingBookId) return;
   const book = getBook(state.editingBookId);
-  if (!book || !confirm(`Supprimer "${book.title}" ?`)) return;
+  if (!book || !confirm(`Supprimer « ${book.title} » ?`)) return;
 
-  await withAppBusy("Suppression du livre...", async () => {
+  await withAppBusy("Suppression du livre…", async () => {
   if (state.storageMode === "supabase") {
     const { error } = await state.db.from("books").delete().eq("id", state.editingBookId);
     if (error) {
@@ -1646,7 +1857,7 @@ function openReader(bookId, page = null) {
 
 async function openReaderWithBusy(bookId, page = null) {
   if (state.isBusy) return;
-  await withAppBusy("Ouverture du livre...", async () => openReader(bookId, page));
+  await withAppBusy("Ouverture du livre…", async () => openReader(bookId, page));
 }
 
 function getCurrentPageAnchor() {
@@ -1711,6 +1922,8 @@ function renderReader() {
   byId("page-jump").max = state.pages.length;
   byId("page-jump").value = state.currentPage + 1;
   byId("bookmark-button").textContent = book.bookmarkPage === state.currentPage ? "Marque-page posé" : "Marque-page";
+  updateAmbianceButton();
+  updateSoundEffectsButton();
   byId("prev-page").disabled = isMobile ? state.currentPage <= 0 : leftIndex <= 0;
   byId("next-page").disabled = isMobile ? state.currentPage >= state.pages.length - 1 : leftIndex + 2 >= state.pages.length;
 
@@ -1719,12 +1932,25 @@ function renderReader() {
 }
 
 function renderPage(container, page, index, book) {
+  container.classList.toggle("illustration-page", Boolean(page?.illustration));
+
   if (!page) {
     container.innerHTML = "";
     return;
   }
 
   const bookmark = book.bookmarkPage === index ? '<span class="bookmark-ribbon" aria-label="Marque-page"></span>' : "";
+  if (page.illustration) {
+    container.innerHTML = `
+      ${bookmark}
+      <figure class="chapter-illustration-page">
+        <img src="${escapeHtml(page.illustration)}" alt="${escapeHtml(`Illustration - ${page.chapterTitle || book.title}`)}" />
+      </figure>
+      <span class="page-number">${index + 1}</span>
+    `;
+    return;
+  }
+
   const title = page.startsChapter ? `<h2>${escapeHtml(page.chapterTitle)}</h2>` : "";
   const paragraphs = page.paragraphs
     .map((paragraph) => {
@@ -1796,7 +2022,7 @@ function renderBookSearchResults() {
   });
 
   if (!results.length) {
-    container.innerHTML = '<p class="import-warning">Aucun resultat.</p>';
+    container.innerHTML = '<p class="import-warning">Aucun résultat.</p>';
     return;
   }
 
@@ -1824,14 +2050,14 @@ function updateReaderPreference(key, value) {
 
 function toggleReaderFocus() {
   document.body.classList.toggle("reader-focus");
-  byId("reader-focus-toggle").textContent = document.body.classList.contains("reader-focus") ? "Quitter" : "Plein ecran";
+  byId("reader-focus-toggle").textContent = document.body.classList.contains("reader-focus") ? "Quitter" : "Plein écran";
   window.setTimeout(repaginateActiveBook, 60);
 }
 
 function exitReaderFocus() {
   if (!document.body.classList.contains("reader-focus")) return;
   document.body.classList.remove("reader-focus");
-  byId("reader-focus-toggle").textContent = "Plein ecran";
+  byId("reader-focus-toggle").textContent = "Plein écran";
   window.setTimeout(repaginateActiveBook, 60);
 }
 
@@ -1850,6 +2076,244 @@ function handleTouchEnd(event) {
   changePageByDirection(deltaX < 0 ? "forward" : "backward");
 }
 
+function playPageFlipSound() {
+  if (!state.readerPrefs.soundEffects) return;
+
+  if (!state.pageFlipAudio) {
+    state.pageFlipAudio = new Audio(PAGE_FLIP_SOUND);
+    state.pageFlipAudio.preload = "auto";
+    state.pageFlipAudio.volume = 0.7;
+  }
+
+  try {
+    state.pageFlipAudio.pause();
+    state.pageFlipAudio.currentTime = 0;
+  } catch {
+  }
+
+  const playPromise = state.pageFlipAudio.play();
+  if (playPromise?.catch) {
+    playPromise.catch(() => {});
+  }
+}
+
+function updateSoundEffectsButton() {
+  const button = byId("sound-effects-toggle");
+  if (!button) return;
+
+  const isMuted = !state.readerPrefs.soundEffects;
+  button.textContent = isMuted ? "Sons coupés" : "Sons";
+  button.setAttribute("aria-pressed", isMuted ? "true" : "false");
+  button.setAttribute("aria-label", isMuted ? "Réactiver les effets sonores" : "Couper les effets sonores");
+}
+
+function toggleSoundEffects() {
+  state.readerPrefs.soundEffects = !state.readerPrefs.soundEffects;
+  saveReaderPrefs();
+  updateSoundEffectsButton();
+
+  if (!state.readerPrefs.soundEffects && state.pageFlipAudio) {
+    state.pageFlipAudio.pause();
+    state.pageFlipAudio.currentTime = 0;
+  }
+}
+
+function getAmbianceTrack(trackId = state.readerPrefs.ambianceTrack) {
+  return AMBIANCE_TRACKS.find((track) => track.id === trackId) || AMBIANCE_TRACKS[0];
+}
+
+function renderAmbianceTrackOptions() {
+  const select = byId("ambiance-track");
+  if (!select) return;
+
+  const selectedTrack = getAmbianceTrack();
+  select.innerHTML = AMBIANCE_TRACKS
+    .map((track) => `<option value="${escapeHtml(track.id)}">${escapeHtml(track.label)}</option>`)
+    .join("");
+  select.value = selectedTrack.id;
+}
+
+function resetAmbianceAudio() {
+  cancelAmbianceFade();
+
+  if (state.ambianceAudio) {
+    state.ambianceAudio.pause();
+    state.ambianceAudio.volume = 0;
+  }
+
+  state.ambianceAudio = null;
+  state.activeAmbianceTrackId = null;
+}
+
+function getAmbianceAudio() {
+  const track = getAmbianceTrack();
+
+  if (state.ambianceAudio && state.activeAmbianceTrackId === track.id) {
+    return state.ambianceAudio;
+  }
+
+  resetAmbianceAudio();
+  state.ambianceAudio = new Audio(track.src);
+  state.ambianceAudio.loop = true;
+  state.ambianceAudio.preload = "none";
+  state.ambianceAudio.volume = 0;
+  state.activeAmbianceTrackId = track.id;
+
+  return state.ambianceAudio;
+}
+
+function updateAmbianceButton() {
+  const button = byId("ambiance-toggle");
+  if (!button) return;
+
+  const panel = byId("ambiance-panel");
+  const isPanelOpen = Boolean(panel && !panel.hidden);
+  button.textContent = state.isAmbianceEnabled ? "Ambiance active" : "Ambiance";
+  button.setAttribute("aria-pressed", state.isAmbianceEnabled ? "true" : "false");
+  button.setAttribute("aria-expanded", isPanelOpen ? "true" : "false");
+  button.setAttribute("aria-label", isPanelOpen ? "Fermer le panneau d’ambiance" : "Ouvrir le panneau d’ambiance");
+  updateAmbiancePlayButton();
+}
+
+function updateAmbiancePlayButton() {
+  const button = byId("ambiance-play-toggle");
+  if (!button) return;
+
+  const track = getAmbianceTrack();
+  button.textContent = state.isAmbianceEnabled ? "Couper l’ambiance" : "Lancer l’ambiance";
+  button.setAttribute("aria-pressed", state.isAmbianceEnabled ? "true" : "false");
+  button.setAttribute("aria-label", state.isAmbianceEnabled ? `Couper l’ambiance ${track.label}` : `Lancer l’ambiance ${track.label}`);
+}
+
+function toggleAmbiancePanel() {
+  const panel = byId("ambiance-panel");
+  if (!panel) return;
+
+  panel.hidden = !panel.hidden;
+  updateAmbianceButton();
+}
+
+function cancelAmbianceFade() {
+  if (!state.ambianceFadeFrame) return;
+
+  window.cancelAnimationFrame(state.ambianceFadeFrame);
+  state.ambianceFadeFrame = 0;
+}
+
+function fadeAmbianceVolume(targetVolume, onComplete = null, audio = state.ambianceAudio || getAmbianceAudio()) {
+  const startVolume = audio.volume;
+  const startTime = performance.now();
+
+  cancelAmbianceFade();
+
+  const step = (now) => {
+    const progress = Math.min((now - startTime) / AMBIANCE_FADE_MS, 1);
+    const easedProgress = 1 - Math.pow(1 - progress, 3);
+
+    audio.volume = startVolume + (targetVolume - startVolume) * easedProgress;
+
+    if (progress < 1) {
+      state.ambianceFadeFrame = window.requestAnimationFrame(step);
+      return;
+    }
+
+    state.ambianceFadeFrame = 0;
+    audio.volume = targetVolume;
+    onComplete?.();
+  };
+
+  state.ambianceFadeFrame = window.requestAnimationFrame(step);
+}
+
+function startAmbiance() {
+  const track = getAmbianceTrack();
+  const audio = getAmbianceAudio();
+  state.isAmbianceEnabled = true;
+  updateAmbianceButton();
+  updateAmbiancePlayButton();
+
+  if (audio.paused) {
+    audio.volume = 0;
+  }
+
+  const playPromise = audio.play();
+  const fadeIn = () => {
+    if (!state.isAmbianceEnabled) {
+      resetAmbianceAudio();
+      return;
+    }
+
+    fadeAmbianceVolume(track.volume ?? AMBIANCE_VOLUME, null, audio);
+  };
+
+  if (playPromise?.then) {
+    playPromise.then(fadeIn).catch(() => {
+      state.isAmbianceEnabled = false;
+      resetAmbianceAudio();
+      updateAmbianceButton();
+      updateAmbiancePlayButton();
+    });
+    return;
+  }
+
+  fadeIn();
+}
+
+function stopAmbiance(onComplete = null) {
+  const audio = state.ambianceAudio;
+  if (!state.isAmbianceEnabled && (!audio || audio.paused)) {
+    onComplete?.();
+    return;
+  }
+
+  state.isAmbianceEnabled = false;
+  updateAmbianceButton();
+  updateAmbiancePlayButton();
+
+  if (!audio) {
+    onComplete?.();
+    return;
+  }
+
+  fadeAmbianceVolume(0, () => {
+    audio.pause();
+    audio.volume = 0;
+    if (state.ambianceAudio === audio) {
+      state.ambianceAudio = null;
+      state.activeAmbianceTrackId = null;
+    }
+    onComplete?.();
+  }, audio);
+}
+
+function updateAmbianceTrack(trackId) {
+  const previousTrack = getAmbianceTrack();
+  const nextTrack = getAmbianceTrack(trackId);
+  state.readerPrefs.ambianceTrack = nextTrack.id;
+  saveReaderPrefs();
+  renderAmbianceTrackOptions();
+  updateAmbianceButton();
+  updateAmbiancePlayButton();
+
+  if (nextTrack.id === previousTrack.id) return;
+
+  if (state.isAmbianceEnabled) {
+    stopAmbiance(() => startAmbiance());
+    return;
+  }
+
+  resetAmbianceAudio();
+}
+
+function toggleAmbiance() {
+  if (state.isAmbianceEnabled) {
+    stopAmbiance();
+    return;
+  }
+
+  startAmbiance();
+}
+
 function goToPage(pageIndex) {
   const nextPage = Math.min(Math.max(pageIndex, 0), state.pages.length - 1);
   if (nextPage === state.currentPage || state.isAnimating) return;
@@ -1861,6 +2325,7 @@ function goToPage(pageIndex) {
     return;
   }
 
+  playPageFlipSound();
   animatePageMove(previousPage, nextPage);
 }
 
@@ -1971,6 +2436,19 @@ function changePageFromPaper(side) {
   }
 }
 
+function changePageFromPaperClick(event, fallbackSide) {
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+
+  if (!isMobile) {
+    changePageFromPaper(fallbackSide);
+    return;
+  }
+
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const side = event.clientX < bounds.left + bounds.width / 2 ? "left" : "right";
+  changePageFromPaper(side);
+}
+
 function changePageByDirection(direction) {
   const isMobile = window.matchMedia("(max-width: 760px)").matches;
   const spread = getVisiblePageIndices(state.currentPage);
@@ -2023,7 +2501,7 @@ async function setBookmark() {
   const book = getBook(state.activeBookId);
   if (!book) return;
 
-  await withAppBusy("Enregistrement du marque-page...", async () => {
+  await withAppBusy("Enregistrement du marque-page…", async () => {
   book.bookmarkPage = state.currentPage;
   book.updatedAt = new Date().toISOString();
 
@@ -2035,7 +2513,7 @@ async function setBookmark() {
 
     if (error) {
       console.error(error);
-      alert("Impossible d'enregistrer le marque-page dans la base de données.");
+      alert("Impossible d’enregistrer le marque-page dans la base de données.");
       return;
     }
   } else {
@@ -2102,6 +2580,8 @@ function bindEvents() {
   byId("chapter-title").addEventListener("input", updateCurrentChapterDraft);
   byId("chapter-content").addEventListener("input", updateCurrentChapterDraft);
   byId("chapter-content").addEventListener("paste", handleRichEditorPaste);
+  byId("chapter-illustration-file").addEventListener("change", handleChapterIllustrationFileChange);
+  byId("remove-chapter-illustration").addEventListener("click", removeChapterIllustration);
   byId("save-chapter").addEventListener("click", saveCurrentChapter);
   byId("delete-chapter").addEventListener("click", deleteCurrentChapter);
   byId("move-chapter-up").addEventListener("click", () => moveCurrentChapter(-1));
@@ -2124,8 +2604,8 @@ function bindEvents() {
   byId("delete-book").addEventListener("click", deleteCurrentBook);
   byId("prev-page").addEventListener("click", () => changePageByDirection("backward"));
   byId("next-page").addEventListener("click", () => changePageByDirection("forward"));
-  byId("left-page").addEventListener("click", () => changePageFromPaper("left"));
-  byId("right-page").addEventListener("click", () => changePageFromPaper("right"));
+  byId("left-page").addEventListener("click", (event) => changePageFromPaperClick(event, "left"));
+  byId("right-page").addEventListener("click", (event) => changePageFromPaperClick(event, "right"));
   byId("book-reader").addEventListener("wheel", changePageFromWheel, { passive: false });
   byId("book-reader").addEventListener("touchstart", handleTouchStart, { passive: true });
   byId("book-reader").addEventListener("touchend", handleTouchEnd, { passive: true });
@@ -2134,6 +2614,9 @@ function bindEvents() {
     const book = getBook(state.activeBookId);
     if (book) goToPage(book.bookmarkPage ?? getReadingProgress(book.id) ?? 0);
   });
+  byId("ambiance-toggle").addEventListener("click", toggleAmbiancePanel);
+  byId("ambiance-play-toggle").addEventListener("click", toggleAmbiance);
+  byId("sound-effects-toggle").addEventListener("click", toggleSoundEffects);
   byId("reader-settings-toggle").addEventListener("click", () => {
     byId("reader-settings").hidden = !byId("reader-settings").hidden;
   });
@@ -2142,6 +2625,7 @@ function bindEvents() {
   byId("reader-font-size").addEventListener("input", (event) => updateReaderPreference("fontSize", Number(event.target.value)));
   byId("reader-line-height").addEventListener("input", (event) => updateReaderPreference("lineHeight", Number(event.target.value) / 100));
   byId("reader-theme").addEventListener("change", (event) => updateReaderPreference("theme", event.target.value));
+  byId("ambiance-track").addEventListener("change", (event) => updateAmbianceTrack(event.target.value));
   byId("book-search").addEventListener("input", renderBookSearchResults);
   byId("page-jump").addEventListener("change", (event) => {
     goToPage(Number(event.target.value) - 1);
@@ -2169,7 +2653,7 @@ function bindEvents() {
 }
 
 async function init() {
-  setAppBusy(true, "Chargement de la bibliothèque...");
+  setAppBusy(true, "Chargement de la bibliothèque…");
 
   try {
     loadReaderPrefs();

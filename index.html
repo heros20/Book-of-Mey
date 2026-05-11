@@ -23,7 +23,7 @@
           <span class="brand-mark">BM</span>
           <span>
             <strong>Book of Mey</strong>
-            <small>Bibliothèque d'écriture</small>
+            <small>Bibliothèque d’écriture</small>
           </span>
         </a>
 
@@ -55,7 +55,7 @@
           <div class="library-toolbar">
             <label class="search-field">
               <span>Rechercher</span>
-              <input id="search-input" type="search" placeholder="Titre, auteur, chapitre..." />
+              <input id="search-input" type="search" placeholder="Titre, auteur, chapitre…" />
             </label>
             <label class="select-field">
               <span>Trier par</span>
@@ -100,7 +100,7 @@
               <div class="cover-preview" id="cover-preview" aria-label="Aperçu couverture"></div>
               <label>
                 URL de couverture
-                <input id="book-cover" name="cover" placeholder="Optionnel : URL d'image" />
+                <input id="book-cover" name="cover" placeholder="Optionnel : URL d’image" />
               </label>
               <label>
                 Taille du texte
@@ -124,9 +124,9 @@
             <section class="text-importer">
               <div class="importer-header">
                 <div>
-                  <h2>Panneau de controle des chapitres</h2>
+                  <h2>Panneau de contrôle des chapitres</h2>
                   <p>
-                    Ajoute, modifie, supprime ou reorganise les chapitres un par un.
+                    Ajoute, modifie, supprime ou réorganise les chapitres un par un.
                     Tu peux aussi importer un texte complet pour remplacer la liste.
                   </p>
                 </div>
@@ -147,7 +147,7 @@
                 <section class="chapter-editor-panel">
                   <label>
                     Titre du chapitre
-                    <input id="chapter-title" type="text" placeholder="Chapitre 1 - Le depart" />
+                    <input id="chapter-title" type="text" placeholder="Chapitre 1 - Le départ" />
                   </label>
                   <label>
                     Contenu du chapitre
@@ -158,9 +158,17 @@
                       role="textbox"
                       aria-multiline="true"
                       spellcheck="true"
-                      data-placeholder="Premier paragraphe..."
+                      data-placeholder="Premier paragraphe…"
                     ></div>
                   </label>
+                  <div class="chapter-illustration-control">
+                    <label>
+                      Illustration de fin de chapitre
+                      <input id="chapter-illustration-file" type="file" accept="image/*" />
+                    </label>
+                    <div class="chapter-illustration-preview" id="chapter-illustration-preview" aria-label="Aperçu illustration"></div>
+                    <button class="secondary-action" id="remove-chapter-illustration" type="button">Retirer l’illustration</button>
+                  </div>
                   <div class="chapter-actions">
                     <button class="primary-action" id="save-chapter" type="button">Enregistrer le chapitre</button>
                     <button class="secondary-action" id="move-chapter-up" type="button">Monter</button>
@@ -175,10 +183,10 @@
                 id="chapter-source"
                 name="chapters"
                 spellcheck="true"
-                placeholder="Chapitre 1 - Le départ&#10;&#10;Premier paragraphe...&#10;&#10;Chapitre 2 - La suite&#10;&#10;Deuxième chapitre..."
+                placeholder="Chapitre 1 - Le départ&#10;&#10;Premier paragraphe…&#10;&#10;Chapitre 2 - La suite&#10;&#10;Deuxième chapitre…"
               ></textarea>
                 <div class="import-actions">
-                  <button class="secondary-action" id="append-import" type="button">Ajouter a la liste</button>
+                  <button class="secondary-action" id="append-import" type="button">Ajouter à la liste</button>
                   <button class="danger-action" id="replace-import" type="button">Remplacer la liste</button>
                 </div>
               <div class="import-preview" id="import-preview"></div>
@@ -191,7 +199,7 @@
         <section class="view reader-view" id="reader-view" aria-labelledby="reader-title">
           <div class="reader-empty" id="reader-empty">
             <h1 id="reader-title">Aucun livre sélectionné</h1>
-            <p>Choisis un livre dans la bibliothèque pour ouvrir l'espace de lecture.</p>
+            <p>Choisis un livre dans la bibliothèque pour ouvrir l’espace de lecture.</p>
             <button class="primary-action" type="button" data-view-target="library">
               Voir la bibliothèque
             </button>
@@ -210,8 +218,20 @@
               <div class="reader-tools">
                 <button id="bookmark-button" type="button">Marque-page</button>
                 <button id="resume-button" type="button">Reprendre</button>
+                <button class="audio-toggle" id="ambiance-toggle" type="button" aria-expanded="false" aria-pressed="false">Ambiance</button>
+                <button class="sound-effects-toggle" id="sound-effects-toggle" type="button" aria-pressed="false">Sons</button>
                 <button id="reader-settings-toggle" type="button">Aa</button>
-                <button id="reader-focus-toggle" type="button">Plein ecran</button>
+                <button id="reader-focus-toggle" type="button">Plein écran</button>
+              </div>
+
+              <div class="ambiance-panel" id="ambiance-panel" hidden>
+                <label>
+                  Son d’ambiance
+                  <select id="ambiance-track"></select>
+                </label>
+                <button class="primary-action ambiance-play-toggle" id="ambiance-play-toggle" type="button" aria-pressed="false">
+                  Lancer l’ambiance
+                </button>
               </div>
 
               <div class="reader-settings" id="reader-settings" hidden>
@@ -224,18 +244,18 @@
                   <input id="reader-line-height" type="range" min="145" max="180" value="158" />
                 </label>
                 <label>
-                  Theme
+                  Thème
                   <select id="reader-theme">
                     <option value="paper">Papier</option>
                     <option value="light">Clair</option>
-                    <option value="sepia">Sepia</option>
+                    <option value="sepia">Sépia</option>
                   </select>
                 </label>
               </div>
 
               <label class="reader-search">
                 Rechercher dans le livre
-                <input id="book-search" type="search" placeholder="Mot ou phrase..." />
+                <input id="book-search" type="search" placeholder="Mot ou phrase…" />
               </label>
               <div class="reader-search-results" id="book-search-results"></div>
 
@@ -274,7 +294,7 @@
     <div class="app-busy-overlay" id="app-busy" role="status" aria-live="polite" aria-atomic="true" hidden>
       <div class="busy-panel">
         <span class="busy-spinner" aria-hidden="true"></span>
-        <strong id="app-busy-title">Traitement en cours</strong>
+        <strong id="app-busy-title">Traitement en cours…</strong>
         <span id="app-busy-message">Merci de patienter.</span>
       </div>
     </div>
