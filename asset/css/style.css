@@ -47,10 +47,77 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .app-shell {
   width: min(1440px, calc(100% - 32px));
   margin: 0 auto;
   padding: 22px 0 40px;
+}
+
+body.is-busy {
+  cursor: wait;
+}
+
+body.is-busy .app-shell {
+  pointer-events: none;
+  user-select: none;
+}
+
+.app-busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(251, 247, 239, 0.58);
+  backdrop-filter: blur(3px);
+  cursor: wait;
+}
+
+.busy-panel {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-width: min(280px, 100%);
+  border: 1px solid rgba(217, 210, 198, 0.9);
+  border-radius: 8px;
+  padding: 22px 24px;
+  color: var(--ink);
+  background: rgba(255, 250, 242, 0.96);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.busy-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(95, 111, 82, 0.24);
+  border-top-color: var(--accent-strong);
+  border-radius: 50%;
+  animation: busy-spin 780ms linear infinite;
+}
+
+.busy-panel strong {
+  font-size: 0.96rem;
+}
+
+.busy-panel span:last-child {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .topbar {
@@ -175,6 +242,15 @@ button {
 .reader-tools button:hover,
 .reader-controls button:hover {
   transform: translateY(-1px);
+}
+
+.nav-button:disabled:hover,
+.primary-action:disabled:hover,
+.secondary-action:disabled:hover,
+.danger-action:disabled:hover,
+.reader-tools button:disabled:hover,
+.reader-controls button:disabled:hover {
+  transform: none;
 }
 
 .view {
