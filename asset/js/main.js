@@ -36,9 +36,12 @@ const state = {
   books: [],
   activeBookId: null,
   currentPage: 0,
+  currentArtbookPage: 0,
   editingBookId: null,
   editingChapterId: null,
+  editingArtbookItemId: null,
   editorChapters: [],
+  editorArtbookItems: [],
   editorDirty: false,
   readerPrefs: {
     fontSize: 18,
@@ -50,6 +53,7 @@ const state = {
   touchStartX: 0,
   touchStartY: 0,
   pages: [],
+  artbookPages: [],
   isAnimating: false,
   isBusy: false,
   busyDepth: 0,
@@ -60,6 +64,7 @@ const state = {
   activeAmbianceTrackId: null,
   isAmbianceEnabled: false,
   storageMode: "local",
+  hasArtbookTable: true,
   db: null,
 };
 
@@ -108,11 +113,17 @@ function syncReaderPrefsControls() {
 
 function applyReaderPrefs() {
   const reader = byId("book-reader");
+  const artbookReader = byId("artbook-reader");
   const view = byId("reader-view");
+  const artbookView = byId("artbook-view");
   if (!reader || !view) return;
-  reader.style.setProperty("--reader-font-size", `${state.readerPrefs.fontSize}px`);
-  reader.style.setProperty("--reader-line-height", state.readerPrefs.lineHeight);
-  view.dataset.theme = state.readerPrefs.theme;
+  [reader, artbookReader].filter(Boolean).forEach((surface) => {
+    surface.style.setProperty("--reader-font-size", `${state.readerPrefs.fontSize}px`);
+    surface.style.setProperty("--reader-line-height", state.readerPrefs.lineHeight);
+  });
+  [view, artbookView].filter(Boolean).forEach((surfaceView) => {
+    surfaceView.dataset.theme = state.readerPrefs.theme;
+  });
 }
 
 const sampleText = `Prologue
@@ -144,6 +155,14 @@ function createSeedBook() {
     fontSize: 18,
     density: "classic",
     chapters,
+    artbookItems: [
+      {
+        id: crypto.randomUUID(),
+        title: "Couverture",
+        description: "Première planche d'artbook rattachée au livre.",
+        image: "asset/image/akira.jpg",
+      },
+    ],
     bookmarkPage: 0,
     updatedAt: new Date().toISOString(),
   };
@@ -182,7 +201,11 @@ function sortChapterRows(chapters) {
   return titleOrderIsDescending ? rows.reverse() : rows;
 }
 
-function mapBookRow(row, chapters) {
+function sortPositionRows(rows) {
+  return [...rows].sort((a, b) => Number(a.position || 0) - Number(b.position || 0));
+}
+
+function mapBookRow(row, chapters, artbookItems = []) {
   return {
     id: row.id,
     title: row.title,
@@ -200,6 +223,27 @@ function mapBookRow(row, chapters) {
         content: chapter.content || "",
         illustration: chapter.illustration || "",
       })),
+    artbookItems: sortPositionRows(artbookItems.filter((item) => item.book_id === row.id))
+      .map((item) => ({
+        id: item.id,
+        title: item.title || "",
+        description: item.description || "",
+        image: item.image || "",
+      })),
+  };
+}
+
+function normalizeBook(book) {
+  return {
+    ...book,
+    author: book.author || "",
+    summary: book.summary || "",
+    cover: book.cover || "",
+    fontSize: book.fontSize || 18,
+    density: book.density || "classic",
+    bookmarkPage: book.bookmarkPage || 0,
+    chapters: (book.chapters || []).map(cloneChapter),
+    artbookItems: (book.artbookItems || []).map(cloneArtbookItem),
   };
 }
 
@@ -224,7 +268,22 @@ async function loadBooksFromDatabase() {
 
   if (chaptersError) throw chaptersError;
 
-  state.books = books.map((book) => mapBookRow(book, chapters || []));
+  let artbookItems = [];
+  const { data: artbookRows, error: artbookError } = await state.db
+    .from("artbook_items")
+    .select("*")
+    .in("book_id", books.map((book) => book.id))
+    .order("position", { ascending: true });
+
+  if (artbookError) {
+    state.hasArtbookTable = false;
+    console.warn("Table artbook_items indisponible. Les artbooks seront vides jusqu'à la migration.", artbookError);
+  } else {
+    state.hasArtbookTable = true;
+    artbookItems = artbookRows || [];
+  }
+
+  state.books = books.map((book) => mapBookRow(book, chapters || [], artbookItems));
 }
 
 function loadBooksFromLocalStorage() {
@@ -236,7 +295,7 @@ function loadBooksFromLocalStorage() {
   }
 
   try {
-    state.books = JSON.parse(raw);
+    state.books = JSON.parse(raw).map(normalizeBook);
   } catch {
     state.books = [createSeedBook()];
     saveBooks();
@@ -311,6 +370,8 @@ async function withAppBusy(message, callback) {
 }
 
 function showView(viewName) {
+  syncArtbookNavButton();
+
   document.querySelectorAll(".view").forEach((view) => {
     view.classList.toggle("is-active", view.id === `${viewName}-view`);
   });
@@ -322,6 +383,22 @@ function showView(viewName) {
   if (viewName !== "reader") {
     stopAmbiance();
   }
+}
+
+function switchEditorTab(tabName) {
+  const nextTab = tabName === "artbook" ? "artbook" : "book";
+
+  document.querySelectorAll("[data-editor-tab]").forEach((button) => {
+    const isActive = button.dataset.editorTab === nextTab;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+
+  document.querySelectorAll("[data-editor-panel]").forEach((panel) => {
+    const isActive = panel.dataset.editorPanel === nextTab;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  });
 }
 
 function getBook(id) {
@@ -766,6 +843,15 @@ function cloneChapter(chapter, fallbackIndex = 0) {
   };
 }
 
+function cloneArtbookItem(item = {}, fallbackIndex = 0) {
+  return {
+    id: item.id || crypto.randomUUID(),
+    title: (item.title || "").trim(),
+    description: item.description || "",
+    image: item.image || "",
+  };
+}
+
 function setEditorChapters(chapters, selectedId = null, options = {}) {
   state.editorChapters = chapters.map(cloneChapter);
   state.editingChapterId = selectedId || state.editorChapters[0]?.id || null;
@@ -978,6 +1064,184 @@ function importChaptersFromSource(mode) {
   }
 
   setEditorChapters(chapters, chapters[0].id, { dirty: true });
+}
+
+function artbookItemTitle(item, index = 0) {
+  return item?.title || `Planche ${index + 1}`;
+}
+
+function setEditorArtbookItems(items, selectedId = null, options = {}) {
+  state.editorArtbookItems = (items || []).map(cloneArtbookItem);
+  state.editingArtbookItemId = selectedId || state.editorArtbookItems[0]?.id || null;
+  renderArtbookControl();
+  if (options.dirty) {
+    markEditorDirty();
+  }
+}
+
+function getEditingArtbookItemIndex() {
+  return state.editorArtbookItems.findIndex((item) => item.id === state.editingArtbookItemId);
+}
+
+function getEditingArtbookItem() {
+  return state.editorArtbookItems[getEditingArtbookItemIndex()] || null;
+}
+
+function artbookDescriptionWordCount(item) {
+  return String(item.description || "").split(/\s+/).filter(Boolean).length;
+}
+
+function artbookMetaText(item) {
+  const words = artbookDescriptionWordCount(item);
+  const imageState = item.image ? "image" : "sans image";
+  return `${imageState} - ${words} mot${words > 1 ? "s" : ""}`;
+}
+
+function setArtbookImagePreview(value) {
+  const preview = byId("artbook-image-preview");
+  if (!preview) return;
+  preview.style.backgroundImage = value ? `url(${JSON.stringify(value)})` : "";
+}
+
+function selectArtbookItem(itemId) {
+  state.editingArtbookItemId = itemId;
+  renderArtbookControl();
+}
+
+function renderArtbookControl() {
+  const list = byId("artbook-list");
+  if (!list) return;
+
+  const count = byId("artbook-count");
+  const titleInput = byId("artbook-title");
+  const descriptionInput = byId("artbook-description");
+  const imageFileInput = byId("artbook-image-file");
+  const imageUrlInput = byId("artbook-image-url");
+  const removeImageButton = byId("remove-artbook-image");
+  const deleteButton = byId("delete-artbook-item");
+  const moveUpButton = byId("move-artbook-item-up");
+  const moveDownButton = byId("move-artbook-item-down");
+  const saveButton = byId("save-artbook-item");
+  const index = getEditingArtbookItemIndex();
+  const item = getEditingArtbookItem();
+
+  list.innerHTML = "";
+  count.textContent = `${state.editorArtbookItems.length}`;
+
+  if (!state.editorArtbookItems.length) {
+    list.innerHTML = "<div class=\"chapter-empty\">Aucune planche. Ajoute une image pour commencer l'artbook.</div>";
+  } else {
+    state.editorArtbookItems.forEach((artbookItem, itemIndex) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "artbook-list-item";
+      button.classList.toggle("is-active", artbookItem.id === state.editingArtbookItemId);
+      button.innerHTML = `
+        <span>${itemIndex + 1}</span>
+        <strong>${escapeHtml(artbookItemTitle(artbookItem, itemIndex))}</strong>
+        <small>${escapeHtml(artbookMetaText(artbookItem))}</small>
+      `;
+      button.addEventListener("click", () => selectArtbookItem(artbookItem.id));
+      list.appendChild(button);
+    });
+  }
+
+  titleInput.value = item?.title || "";
+  descriptionInput.value = item?.description || "";
+  if (imageFileInput) imageFileInput.value = "";
+  imageUrlInput.value = item?.image && !item.image.startsWith("data:image/") ? item.image : "";
+  setArtbookImagePreview(item?.image || "");
+  titleInput.disabled = !item;
+  descriptionInput.disabled = !item;
+  if (imageFileInput) imageFileInput.disabled = !item;
+  imageUrlInput.disabled = !item;
+  if (removeImageButton) removeImageButton.disabled = !item || !item.image;
+  if (saveButton) saveButton.disabled = !item;
+  deleteButton.disabled = !item;
+  moveUpButton.disabled = !item || index <= 0;
+  moveDownButton.disabled = !item || index < 0 || index >= state.editorArtbookItems.length - 1;
+}
+
+function readArtbookImageDraft(existingItem) {
+  const url = byId("artbook-image-url").value.trim();
+  if (url) return url;
+  return existingItem?.image?.startsWith("data:image/") ? existingItem.image : "";
+}
+
+function readArtbookItemDraft(existingItem) {
+  return {
+    ...existingItem,
+    title: byId("artbook-title").value.trim(),
+    description: byId("artbook-description").value.trim(),
+    image: readArtbookImageDraft(existingItem),
+  };
+}
+
+function addEmptyArtbookItem() {
+  const item = {
+    id: crypto.randomUUID(),
+    title: "",
+    description: "",
+    image: "",
+  };
+  state.editorArtbookItems.push(item);
+  state.editingArtbookItemId = item.id;
+  switchEditorTab("artbook");
+  renderArtbookControl();
+  markEditorDirty("Nouvelle planche non enregistrée.");
+  byId("artbook-title").focus();
+}
+
+function updateCurrentArtbookDraft() {
+  const index = getEditingArtbookItemIndex();
+  if (index < 0) return;
+
+  state.editorArtbookItems[index] = readArtbookItemDraft(state.editorArtbookItems[index]);
+  setArtbookImagePreview(state.editorArtbookItems[index].image);
+  byId("remove-artbook-image").disabled = !state.editorArtbookItems[index].image;
+  markEditorDirty("Artbook modifié, livre non enregistré.");
+}
+
+function saveCurrentArtbookItem(options = {}) {
+  const index = getEditingArtbookItemIndex();
+  if (index < 0) return true;
+
+  state.editorArtbookItems[index] = readArtbookItemDraft(state.editorArtbookItems[index]);
+  const item = state.editorArtbookItems[index];
+  const hasContent = item.title || item.description || item.image;
+
+  if (hasContent && !item.image && !options.silent) {
+    alert("Ajoute une image pour cette planche d'artbook.");
+    return false;
+  }
+
+  renderArtbookControl();
+  markEditorDirty("Planche modifiée, livre non enregistré.");
+  return true;
+}
+
+function deleteCurrentArtbookItem() {
+  const index = getEditingArtbookItemIndex();
+  if (index < 0) return;
+
+  const item = state.editorArtbookItems[index];
+  if (!confirm(`Supprimer la planche "${artbookItemTitle(item, index)}" ?`)) return;
+
+  state.editorArtbookItems.splice(index, 1);
+  state.editingArtbookItemId = state.editorArtbookItems[Math.min(index, state.editorArtbookItems.length - 1)]?.id || null;
+  renderArtbookControl();
+  markEditorDirty("Planche supprimée, livre non enregistré.");
+}
+
+function moveCurrentArtbookItem(direction) {
+  const index = getEditingArtbookItemIndex();
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= state.editorArtbookItems.length) return;
+
+  const [item] = state.editorArtbookItems.splice(index, 1);
+  state.editorArtbookItems.splice(nextIndex, 0, item);
+  renderArtbookControl();
+  markEditorDirty("Ordre de l'artbook modifié, livre non enregistré.");
 }
 
 function shouldStartNewParagraph(previousLine, nextLine, currentText) {
@@ -1299,6 +1563,7 @@ function getBookVersion(book) {
     state.readerPrefs.fontSize,
     state.readerPrefs.lineHeight,
     book.chapters.map((chapter) => `${chapter.id}:${chapter.title}:${chapter.content.length}:${chapter.illustration?.length || 0}`).join("|"),
+    (book.artbookItems || []).map((item) => `${item.id}:${item.title}:${item.description?.length || 0}:${item.image?.length || 0}`).join("|"),
   ].join("::");
 }
 
@@ -1309,6 +1574,20 @@ function findChapterStartPage(pages, chapterId) {
 function isSpecialBookSection(chapter) {
   const title = (chapter.title || "").trim();
   return /^prologue$/i.test(title) || /^epilogue$/i.test(title) || /^epilogue$/i.test(title.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+}
+
+function getArtbookItems(book) {
+  return (book?.artbookItems || []).filter((item) => item.image);
+}
+
+function hasArtbook(book) {
+  return getArtbookItems(book).length > 0;
+}
+
+function syncArtbookNavButton() {
+  const button = document.querySelector('[data-view-target="artbook"]');
+  if (!button) return;
+  button.hidden = !hasArtbook(getBook(state.activeBookId));
 }
 
 function formatBookSectionStats(book) {
@@ -1334,7 +1613,10 @@ function formatBookSectionStats(book) {
     parts.push(`${extraSpecialCount} section${extraSpecialCount > 1 ? "s" : ""}`);
   }
 
-  return parts.length ? parts.join(" + ") : "Aucun chapitre";
+  const chapterStats = parts.length ? parts.join(" + ") : "Aucun chapitre";
+  const artbookCount = getArtbookItems(book).length;
+  if (!artbookCount) return chapterStats;
+  return `${chapterStats} - ${artbookCount} planche${artbookCount > 1 ? "s" : ""}`;
 }
 
 function renderBookGrid() {
@@ -1346,7 +1628,13 @@ function renderBookGrid() {
   grid.innerHTML = "";
 
   let books = [...state.books].filter((book) => {
-    const haystack = [book.title, book.author, book.summary, ...book.chapters.map((chapter) => chapter.title)]
+    const haystack = [
+      book.title,
+      book.author,
+      book.summary,
+      ...book.chapters.map((chapter) => chapter.title),
+      ...(book.artbookItems || []).flatMap((item) => [item.title, item.description]),
+    ]
       .join(" ")
       .toLowerCase();
     return haystack.includes(query);
@@ -1373,9 +1661,16 @@ function renderBookGrid() {
     node.querySelector(".book-summary").textContent = book.summary || "Aucun résumé pour le moment.";
     node.querySelector(".book-stats").textContent = formatBookSectionStats(book);
     node.querySelector(".read-book").addEventListener("click", () => openReaderWithBusy(book.id));
+    const artbookButton = node.querySelector(".open-artbook");
+    artbookButton.hidden = !hasArtbook(book);
+    if (hasArtbook(book)) {
+      artbookButton.addEventListener("click", () => openArtbookWithBusy(book.id));
+    }
     node.querySelector(".edit-book").addEventListener("click", () => editBook(book.id));
     grid.appendChild(node);
   });
+
+  syncArtbookNavButton();
 }
 
 function coverBackground(book) {
@@ -1420,6 +1715,10 @@ function compressCoverImage(file) {
 
 function compressChapterIllustration(file) {
   return compressImageFile(file, 1600, 0.86);
+}
+
+function compressArtbookImage(file) {
+  return compressImageFile(file, 1800, 0.88);
 }
 
 async function handleCoverFileChange(event) {
@@ -1499,6 +1798,59 @@ function removeChapterIllustration() {
   markEditorDirty("Illustration retirée, livre non enregistré.");
 }
 
+async function handleArtbookImageFileChange(event) {
+  if (state.isBusy) return;
+
+  const index = getEditingArtbookItemIndex();
+  if (index < 0) return;
+
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    alert("Choisis un fichier image pour la planche.");
+    event.target.value = "";
+    return;
+  }
+
+  await withAppBusy("Préparation de l'image d'artbook...", async () => {
+    try {
+      const image = await compressArtbookImage(file);
+      state.editorArtbookItems[index] = {
+        ...state.editorArtbookItems[index],
+        title: byId("artbook-title").value.trim(),
+        description: byId("artbook-description").value.trim(),
+        image,
+      };
+      byId("artbook-image-url").value = "";
+      setArtbookImagePreview(image);
+      renderArtbookControl();
+      markEditorDirty("Image d'artbook ajoutée, livre non enregistré.");
+    } catch (error) {
+      console.error(error);
+      alert("Impossible de lire cette image.");
+    } finally {
+      event.target.value = "";
+    }
+  });
+}
+
+function removeArtbookImage() {
+  const index = getEditingArtbookItemIndex();
+  if (index < 0 || !state.editorArtbookItems[index].image) return;
+
+  state.editorArtbookItems[index] = {
+    ...state.editorArtbookItems[index],
+    title: byId("artbook-title").value.trim(),
+    description: byId("artbook-description").value.trim(),
+    image: "",
+  };
+  byId("artbook-image-url").value = "";
+  setArtbookImagePreview("");
+  renderArtbookControl();
+  markEditorDirty("Image d'artbook retirée, livre non enregistré.");
+}
+
 function updateImportPreview() {
   const importedChapters = getChaptersFromSource();
   const chapters = state.editorChapters;
@@ -1547,6 +1899,15 @@ function validateChapters(chapters) {
   return "";
 }
 
+function validateArtbookItems(items) {
+  const incompleteItem = items.find((item) => !item.image && (item.title || item.description));
+  if (incompleteItem) {
+    return `La planche "${incompleteItem.title || "sans titre"}" doit avoir une image.`;
+  }
+
+  return "";
+}
+
 function getBookSaveErrorMessage(error) {
   const errorText = [error?.code, error?.message, error?.details, error?.hint]
     .filter(Boolean)
@@ -1554,6 +1915,10 @@ function getBookSaveErrorMessage(error) {
 
   if (/illustration/i.test(errorText) && /(column|schema|PGRST204|cache)/i.test(errorText)) {
     return "La base Supabase n’est pas à jour : applique la migration des illustrations, puis recharge la page.";
+  }
+
+  if (/artbook_items/i.test(errorText) || (/artbook/i.test(errorText) && /(relation|schema|cache|PGRST204)/i.test(errorText))) {
+    return "La base Supabase n'est pas à jour : applique la migration des artbooks, puis recharge la page.";
   }
 
   if (/bucket/i.test(errorText) && /not found/i.test(errorText)) {
@@ -1564,6 +1929,10 @@ function getBookSaveErrorMessage(error) {
 }
 
 function readForm() {
+  const artbookItems = state.editorArtbookItems
+    .map(cloneArtbookItem)
+    .filter((item) => item.title || item.description || item.image);
+
   return {
     title: byId("book-title").value.trim(),
     author: byId("book-author").value.trim(),
@@ -1572,6 +1941,7 @@ function readForm() {
     fontSize: Number(byId("font-size").value),
     density: byId("page-density").value,
     chapters: state.editorChapters.map(cloneChapter),
+    artbookItems,
   };
 }
 
@@ -1595,6 +1965,17 @@ function toChapterRows(bookId, chapters) {
     title: chapter.title,
     content: chapter.content,
     illustration: chapter.illustration || "",
+  }));
+}
+
+function toArtbookItemRows(bookId, items) {
+  return items.map((item, index) => ({
+    id: item.id,
+    book_id: bookId,
+    position: index + 1,
+    title: item.title || null,
+    description: item.description || "",
+    image: item.image || "",
   }));
 }
 
@@ -1651,6 +2032,19 @@ async function uploadChapterIllustrationsToDatabase(bookId, chapters) {
   return uploadedChapters;
 }
 
+async function uploadArtbookImagesToDatabase(bookId, items) {
+  const uploadedItems = [];
+
+  for (const [index, item] of items.entries()) {
+    uploadedItems.push({
+      ...item,
+      image: await uploadImageToDatabase(bookId, item.image, `artbook-${index + 1}`),
+    });
+  }
+
+  return uploadedItems;
+}
+
 async function saveChaptersToDatabase(bookId, chapters, existingBook = null) {
   const chapterRows = toChapterRows(bookId, chapters);
   const keepIds = chapterRows.map((chapter) => chapter.id);
@@ -1686,7 +2080,46 @@ async function saveChaptersToDatabase(bookId, chapters, existingBook = null) {
   if (error) throw error;
 }
 
+async function saveArtbookItemsToDatabase(bookId, items, existingBook = null) {
+  const itemRows = toArtbookItemRows(bookId, items);
+  const keepIds = itemRows.map((item) => item.id);
+
+  if (existingBook?.artbookItems?.length) {
+    const temporaryPositionStart = -2000000000;
+
+    for (const [index, item] of existingBook.artbookItems.entries()) {
+      const { error } = await state.db
+        .from("artbook_items")
+        .update({ position: temporaryPositionStart + index })
+        .eq("id", item.id);
+
+      if (error) throw error;
+    }
+
+    const removedIds = existingBook.artbookItems
+      .map((item) => item.id)
+      .filter((id) => !keepIds.includes(id));
+
+    if (removedIds.length) {
+      const { error } = await state.db.from("artbook_items").delete().in("id", removedIds);
+      if (error) throw error;
+    }
+  }
+
+  if (!itemRows.length) return;
+
+  const { error } = await state.db
+    .from("artbook_items")
+    .upsert(itemRows, { onConflict: "id" });
+
+  if (error) throw error;
+}
+
 async function saveBookToDatabase(payload, existingBook = null) {
+  if ((payload.artbookItems || []).length && state.hasArtbookTable === false) {
+    throw new Error("artbook_items table missing");
+  }
+
   const bookRow = toBookRow(payload, existingBook?.bookmarkPage || 0);
   let savedBook;
 
@@ -1723,12 +2156,15 @@ async function saveBookToDatabase(payload, existingBook = null) {
 
   const chapters = await uploadChapterIllustrationsToDatabase(savedBook.id, payload.chapters);
   await saveChaptersToDatabase(savedBook.id, chapters, existingBook);
+  const artbookItems = await uploadArtbookImagesToDatabase(savedBook.id, payload.artbookItems || []);
+  await saveArtbookItemsToDatabase(savedBook.id, artbookItems, existingBook);
   await loadBooksFromDatabase();
   return savedBook.id;
 }
 
 function fillForm(book) {
   state.editingBookId = book?.id || null;
+  switchEditorTab("book");
   byId("book-title").value = book?.title || "";
   byId("book-author").value = book?.author || "";
   byId("book-summary").value = book?.summary || "";
@@ -1739,6 +2175,7 @@ function fillForm(book) {
   byId("font-size").value = book?.fontSize || 18;
   byId("page-density").value = book?.density || "classic";
   setEditorChapters(book?.chapters || []);
+  setEditorArtbookItems(book?.artbookItems || []);
   byId("delete-book").hidden = !book;
   markEditorSaved(book ? "Livre chargé. Aucune modification en attente." : "Nouveau livre prêt.");
 }
@@ -1751,11 +2188,22 @@ async function saveForm(event) {
   if (getEditingChapter() && !saveCurrentChapter()) {
     return;
   }
+
+  if (getEditingArtbookItem() && !saveCurrentArtbookItem({ silent: true })) {
+    return;
+  }
+
   const payload = readForm();
 
   const chapterError = validateChapters(payload.chapters);
   if (chapterError) {
     alert(chapterError);
+    return;
+  }
+
+  const artbookError = validateArtbookItems(payload.artbookItems);
+  if (artbookError) {
+    alert(artbookError);
     return;
   }
 
@@ -2038,27 +2486,374 @@ function renderBookSearchResults() {
   });
 }
 
+function createArtbookPages(book) {
+  return getArtbookItems(book)
+    .flatMap((item, itemIndex) => {
+      const title = artbookItemTitle(item, itemIndex);
+      return [
+        {
+          type: "artbook-image",
+          itemId: item.id,
+          itemIndex,
+          title,
+          description: item.description || "",
+          image: item.image,
+        },
+        {
+          type: "artbook-description",
+          itemId: item.id,
+          itemIndex,
+          title,
+          description: item.description || "",
+          image: item.image,
+        },
+      ];
+    });
+}
+
+function descriptionParagraphsHtml(description) {
+  const paragraphs = String(description || "")
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  if (!paragraphs.length) {
+    return '<p class="artbook-muted">Aucune description pour cette planche.</p>';
+  }
+
+  return paragraphs
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+function openArtbook(bookId, page = null) {
+  const book = getBook(bookId);
+  if (!book) return;
+
+  state.activeBookId = bookId;
+  localStorage.setItem(ACTIVE_BOOK_KEY, bookId);
+  showView("artbook");
+  state.artbookPages = createArtbookPages(book);
+  state.currentArtbookPage = Math.min(Math.max(page ?? 0, 0), Math.max(0, state.artbookPages.length - 1));
+  renderArtbook();
+}
+
+async function openArtbookWithBusy(bookId, page = null) {
+  if (state.isBusy) return;
+  await withAppBusy("Ouverture de l'artbook...", async () => openArtbook(bookId, page));
+}
+
+function renderArtbook() {
+  const book = getBook(state.activeBookId);
+  const empty = byId("artbook-empty");
+  const layout = byId("artbook-layout");
+
+  if (!book) {
+    layout.hidden = true;
+    empty.hidden = false;
+    byId("artbook-view-title").textContent = "Aucun artbook sélectionné";
+    return;
+  }
+
+  if (!state.artbookPages.length) {
+    layout.hidden = true;
+    empty.hidden = false;
+    byId("artbook-view-title").textContent = "Artbook vide";
+    return;
+  }
+
+  layout.hidden = false;
+  empty.hidden = true;
+  byId("artbook-view-title").textContent = `${book.title} - Artbook`;
+  byId("artbook-book-title").textContent = book.title;
+  const artbookItemCount = getArtbookItems(book).length;
+  byId("artbook-book-meta").textContent = `${book.author || "Auteur inconnu"} - ${artbookItemCount} planche${artbookItemCount > 1 ? "s" : ""}`;
+  byId("artbook-mini-cover").style.backgroundImage = coverBackground(book);
+  applyReaderPrefs();
+
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+  const leftIndex = isMobile ? state.currentArtbookPage : state.currentArtbookPage - (state.currentArtbookPage % 2);
+  const rightIndex = isMobile ? null : leftIndex + 1;
+
+  renderArtbookPage(byId("artbook-left-page"), state.artbookPages[leftIndex], leftIndex, book);
+  renderArtbookPage(
+    byId("artbook-right-page"),
+    rightIndex === null ? state.artbookPages[state.currentArtbookPage] : state.artbookPages[rightIndex],
+    rightIndex ?? state.currentArtbookPage,
+    book
+  );
+
+  byId("artbook-left-page").dataset.pageIndex = leftIndex;
+  byId("artbook-right-page").dataset.pageIndex = rightIndex ?? state.currentArtbookPage;
+
+  byId("artbook-page-indicator").textContent = isMobile || rightIndex >= state.artbookPages.length
+    ? `Page ${state.currentArtbookPage + 1} / ${state.artbookPages.length}`
+    : `Pages ${leftIndex + 1}-${rightIndex + 1} / ${state.artbookPages.length}`;
+  byId("artbook-progress-bar").value = state.artbookPages.length <= 1 ? 100 : Math.round((state.currentArtbookPage / (state.artbookPages.length - 1)) * 100);
+  byId("prev-artbook-page").disabled = isMobile ? state.currentArtbookPage <= 0 : leftIndex <= 0;
+  byId("next-artbook-page").disabled = isMobile ? state.currentArtbookPage >= state.artbookPages.length - 1 : leftIndex + 2 >= state.artbookPages.length;
+
+  renderArtbookToc(book);
+}
+
+function renderArtbookPage(container, page, index, book) {
+  container.classList.toggle("illustration-page", page?.type === "artbook-image");
+  container.classList.toggle("artbook-image-page", page?.type === "artbook-image");
+  container.classList.toggle("artbook-description-page", page?.type === "artbook-description");
+
+  if (!page) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const plateLabel = `Planche ${page.itemIndex + 1}`;
+  if (page.type === "artbook-image") {
+    container.innerHTML = `
+      <figure class="artbook-plate">
+        <img src="${escapeHtml(page.image)}" alt="${escapeHtml(`${plateLabel} - ${page.title || book.title}`)}" />
+        <figcaption>${escapeHtml(plateLabel)}</figcaption>
+      </figure>
+      <span class="page-number">${index + 1}</span>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="page-kicker">Artbook - ${escapeHtml(plateLabel)}</div>
+    <h2>${escapeHtml(page.title)}</h2>
+    <div class="artbook-description-copy">
+      ${descriptionParagraphsHtml(page.description)}
+    </div>
+    <span class="page-number">${index + 1}</span>
+  `;
+}
+
+function renderArtbookToc(book) {
+  const list = byId("artbook-toc-list");
+  list.innerHTML = "";
+
+  getArtbookItems(book).forEach((item, itemIndex) => {
+    const pageIndex = itemIndex * 2;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${artbookItemTitle(item, itemIndex)} - p. ${pageIndex + 1}`;
+    button.classList.toggle("is-active", state.artbookPages[state.currentArtbookPage]?.itemId === item.id);
+    button.addEventListener("click", () => goToArtbookPage(pageIndex));
+    list.appendChild(button);
+  });
+}
+
+function goToArtbookPage(pageIndex) {
+  const nextPage = Math.min(Math.max(pageIndex, 0), state.artbookPages.length - 1);
+  if (nextPage === state.currentArtbookPage || state.isAnimating) return;
+
+  const previousPage = state.currentArtbookPage;
+  if (isSameVisibleSpread(previousPage, nextPage)) {
+    state.currentArtbookPage = nextPage;
+    renderArtbook();
+    return;
+  }
+
+  playPageFlipSound();
+  animateArtbookPageMove(previousPage, nextPage);
+}
+
+function animateArtbookPageMove(fromPage, toPage) {
+  const distance = Math.abs(toPage - fromPage);
+  state.isAnimating = true;
+
+  if (distance > 4) {
+    animateArtbookPageFlutter(fromPage, toPage, distance);
+    return;
+  }
+
+  animateSingleArtbookPageTurn(fromPage, toPage);
+}
+
+function animateSingleArtbookPageTurn(fromPage, toPage) {
+  const book = getBook(state.activeBookId);
+  if (!book) {
+    state.isAnimating = false;
+    return;
+  }
+
+  const direction = toPage > fromPage ? "forward" : "backward";
+  const oldSpread = getVisiblePageIndices(fromPage);
+  const sourceIndex = direction === "forward" ? oldSpread.rightIndex : oldSpread.leftIndex;
+
+  if (!state.artbookPages[sourceIndex]) {
+    state.currentArtbookPage = toPage;
+    renderArtbook();
+    state.isAnimating = false;
+    return;
+  }
+
+  const frontSide = direction === "forward" ? "right-page" : "left-page";
+  const front = document.createElement("article");
+  const sheet = document.createElement("div");
+  sheet.className = `page-turn page-turn-${direction}`;
+  front.className = `paper-page page-turn-face ${frontSide}`;
+  renderArtbookPage(front, state.artbookPages[sourceIndex], sourceIndex, book);
+  sheet.append(front);
+
+  const reader = byId("artbook-reader");
+
+  state.currentArtbookPage = toPage;
+  renderArtbook();
+  reader.appendChild(sheet);
+  reader.classList.add("is-turning");
+
+  window.requestAnimationFrame(() => sheet.classList.add("is-turning-page"));
+  window.setTimeout(() => {
+    sheet.remove();
+    reader.classList.remove("is-turning");
+    state.isAnimating = false;
+  }, 660);
+}
+
+function animateArtbookPageFlutter(fromPage, toPage, distance) {
+  const reader = byId("artbook-reader");
+  const direction = toPage > fromPage ? "forward" : "backward";
+  const sheetCount = Math.min(14, Math.max(6, Math.ceil(distance / 8)));
+
+  state.currentArtbookPage = toPage;
+  renderArtbook();
+  reader.classList.add("is-fluttering", `flutter-${direction}`);
+
+  for (let index = 0; index < sheetCount; index += 1) {
+    const sheet = document.createElement("span");
+    sheet.className = `flutter-sheet flutter-sheet-${direction}`;
+    sheet.style.setProperty("--delay", `${index * 42}ms`);
+    sheet.style.setProperty("--lift", `${index % 4}px`);
+    reader.appendChild(sheet);
+  }
+
+  window.setTimeout(() => {
+    reader.querySelectorAll(".flutter-sheet").forEach((sheet) => sheet.remove());
+    reader.classList.remove("is-fluttering", "flutter-forward", "flutter-backward");
+    state.isAnimating = false;
+  }, sheetCount * 42 + 720);
+}
+
+function changeArtbookPageFromPaper(side) {
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+  const spread = getVisiblePageIndices(state.currentArtbookPage);
+
+  if (side === "left") {
+    goToArtbookPage(isMobile ? state.currentArtbookPage - 1 : spread.leftIndex - 2);
+    return;
+  }
+
+  if (side === "right") {
+    goToArtbookPage(isMobile ? state.currentArtbookPage + 1 : spread.leftIndex + 2);
+  }
+}
+
+function changeArtbookPageFromPaperClick(event, fallbackSide) {
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+
+  if (!isMobile) {
+    changeArtbookPageFromPaper(fallbackSide);
+    return;
+  }
+
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const side = event.clientX < bounds.left + bounds.width / 2 ? "left" : "right";
+  changeArtbookPageFromPaper(side);
+}
+
+function changeArtbookPageByDirection(direction) {
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+  const spread = getVisiblePageIndices(state.currentArtbookPage);
+  const offset = direction === "forward" ? 1 : -1;
+
+  if (isMobile) {
+    goToArtbookPage(state.currentArtbookPage + offset);
+    return;
+  }
+
+  goToArtbookPage(direction === "forward" ? spread.leftIndex + 2 : spread.leftIndex - 2);
+}
+
+function changeArtbookPageFromWheel(event) {
+  if (!state.activeBookId || !byId("artbook-view").classList.contains("is-active")) return;
+
+  const reader = byId("artbook-reader");
+  const bounds = reader.getBoundingClientRect();
+  const isInsideReader =
+    event.clientX >= bounds.left &&
+    event.clientX <= bounds.right &&
+    event.clientY >= bounds.top &&
+    event.clientY <= bounds.bottom;
+
+  if (!isInsideReader) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (state.isAnimating || Math.abs(event.deltaY) < 18) return;
+
+  const now = Date.now();
+  if (now - state.lastWheelTurnAt < 720) return;
+
+  state.lastWheelTurnAt = now;
+
+  const isMobile = window.matchMedia("(max-width: 760px)").matches;
+  if (isMobile) {
+    changeArtbookPageByDirection(event.deltaY > 0 ? "forward" : "backward");
+    return;
+  }
+
+  const side = event.clientX < bounds.left + bounds.width / 2 ? "left" : "right";
+  changeArtbookPageFromPaper(side);
+}
+
+function handleArtbookTouchEnd(event) {
+  const touch = event.changedTouches[0];
+  const deltaX = touch.clientX - state.touchStartX;
+  const deltaY = touch.clientY - state.touchStartY;
+
+  if (Math.abs(deltaX) < 56 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) return;
+  changeArtbookPageByDirection(deltaX < 0 ? "forward" : "backward");
+}
+
 function updateReaderPreference(key, value) {
   state.readerPrefs[key] = value;
   saveReaderPrefs();
   if (key === "fontSize" || key === "lineHeight") {
     repaginateActiveBook();
+    renderArtbook();
     return;
   }
   applyReaderPrefs();
 }
 
+function updateFocusButtons() {
+  const label = document.body.classList.contains("reader-focus") ? "Quitter" : "Plein écran";
+  ["reader-focus-toggle", "artbook-focus-toggle"].forEach((id) => {
+    const button = byId(id);
+    if (button) button.textContent = label;
+  });
+}
+
 function toggleReaderFocus() {
   document.body.classList.toggle("reader-focus");
-  byId("reader-focus-toggle").textContent = document.body.classList.contains("reader-focus") ? "Quitter" : "Plein écran";
-  window.setTimeout(repaginateActiveBook, 60);
+  updateFocusButtons();
+  window.setTimeout(() => {
+    repaginateActiveBook();
+    renderArtbook();
+  }, 60);
 }
 
 function exitReaderFocus() {
   if (!document.body.classList.contains("reader-focus")) return;
   document.body.classList.remove("reader-focus");
-  byId("reader-focus-toggle").textContent = "Plein écran";
-  window.setTimeout(repaginateActiveBook, 60);
+  updateFocusButtons();
+  window.setTimeout(() => {
+    repaginateActiveBook();
+    renderArtbook();
+  }, 60);
 }
 
 function handleTouchStart(event) {
@@ -2556,8 +3351,16 @@ function bindEvents() {
         showView("library");
         return;
       }
+      if (target === "artbook" && (!state.activeBookId || !hasArtbook(getBook(state.activeBookId)))) {
+        showView("library");
+        return;
+      }
       if (target === "reader" && !state.pages.length) {
         openReaderWithBusy(state.activeBookId);
+        return;
+      }
+      if (target === "artbook") {
+        openArtbookWithBusy(state.activeBookId);
         return;
       }
       showView(target);
@@ -2567,6 +3370,9 @@ function bindEvents() {
   byId("search-input").addEventListener("input", renderBookGrid);
   byId("sort-select").addEventListener("change", renderBookGrid);
   byId("book-form").addEventListener("submit", saveForm);
+  document.querySelectorAll("[data-editor-tab]").forEach((button) => {
+    button.addEventListener("click", () => switchEditorTab(button.dataset.editorTab));
+  });
   ["book-title", "book-author", "book-summary", "book-cover", "font-size", "page-density"].forEach((id) => {
     byId(id).addEventListener("input", () => markEditorDirty());
     byId(id).addEventListener("change", () => markEditorDirty());
@@ -2586,6 +3392,16 @@ function bindEvents() {
   byId("delete-chapter").addEventListener("click", deleteCurrentChapter);
   byId("move-chapter-up").addEventListener("click", () => moveCurrentChapter(-1));
   byId("move-chapter-down").addEventListener("click", () => moveCurrentChapter(1));
+  byId("add-artbook-item").addEventListener("click", addEmptyArtbookItem);
+  byId("artbook-title").addEventListener("input", updateCurrentArtbookDraft);
+  byId("artbook-description").addEventListener("input", updateCurrentArtbookDraft);
+  byId("artbook-image-url").addEventListener("input", updateCurrentArtbookDraft);
+  byId("artbook-image-file").addEventListener("change", handleArtbookImageFileChange);
+  byId("remove-artbook-image").addEventListener("click", removeArtbookImage);
+  byId("save-artbook-item").addEventListener("click", saveCurrentArtbookItem);
+  byId("delete-artbook-item").addEventListener("click", deleteCurrentArtbookItem);
+  byId("move-artbook-item-up").addEventListener("click", () => moveCurrentArtbookItem(-1));
+  byId("move-artbook-item-down").addEventListener("click", () => moveCurrentArtbookItem(1));
   byId("append-import").addEventListener("click", () => importChaptersFromSource("append"));
   byId("replace-import").addEventListener("click", () => importChaptersFromSource("replace"));
   byId("font-size").addEventListener("input", updateImportPreview);
@@ -2622,6 +3438,31 @@ function bindEvents() {
   });
   byId("reader-focus-toggle").addEventListener("click", toggleReaderFocus);
   byId("focus-exit").addEventListener("click", exitReaderFocus);
+  byId("artbook-empty-edit").addEventListener("click", () => {
+    const book = getBook(state.activeBookId);
+    if (book) {
+      editBook(book.id);
+      switchEditorTab("artbook");
+      return;
+    }
+    showView("editor");
+    switchEditorTab("artbook");
+  });
+  byId("artbook-open-reader").addEventListener("click", () => {
+    if (state.activeBookId) openReaderWithBusy(state.activeBookId);
+  });
+  byId("artbook-edit-book").addEventListener("click", () => {
+    if (state.activeBookId) editBook(state.activeBookId);
+  });
+  byId("artbook-focus-toggle").addEventListener("click", toggleReaderFocus);
+  byId("artbook-focus-exit").addEventListener("click", exitReaderFocus);
+  byId("prev-artbook-page").addEventListener("click", () => changeArtbookPageByDirection("backward"));
+  byId("next-artbook-page").addEventListener("click", () => changeArtbookPageByDirection("forward"));
+  byId("artbook-left-page").addEventListener("click", (event) => changeArtbookPageFromPaperClick(event, "left"));
+  byId("artbook-right-page").addEventListener("click", (event) => changeArtbookPageFromPaperClick(event, "right"));
+  byId("artbook-reader").addEventListener("wheel", changeArtbookPageFromWheel, { passive: false });
+  byId("artbook-reader").addEventListener("touchstart", handleTouchStart, { passive: true });
+  byId("artbook-reader").addEventListener("touchend", handleArtbookTouchEnd, { passive: true });
   byId("reader-font-size").addEventListener("input", (event) => updateReaderPreference("fontSize", Number(event.target.value)));
   byId("reader-line-height").addEventListener("input", (event) => updateReaderPreference("lineHeight", Number(event.target.value) / 100));
   byId("reader-theme").addEventListener("change", (event) => updateReaderPreference("theme", event.target.value));
@@ -2636,13 +3477,20 @@ function bindEvents() {
       exitReaderFocus();
       return;
     }
-    if (!state.activeBookId || !byId("reader-view").classList.contains("is-active")) return;
+    if (!state.activeBookId) return;
+    if (byId("artbook-view").classList.contains("is-active")) {
+      if (event.key === "ArrowRight") changeArtbookPageByDirection("forward");
+      if (event.key === "ArrowLeft") changeArtbookPageByDirection("backward");
+      return;
+    }
+    if (!byId("reader-view").classList.contains("is-active")) return;
     if (event.key === "ArrowRight") changePageByDirection("forward");
     if (event.key === "ArrowLeft") changePageByDirection("backward");
   });
 
   window.addEventListener("resize", () => {
     if (state.activeBookId) repaginateActiveBook();
+    if (state.activeBookId && byId("artbook-view").classList.contains("is-active")) renderArtbook();
   });
 
   window.addEventListener("beforeunload", (event) => {
@@ -2666,6 +3514,7 @@ async function init() {
     fillForm(null);
     bindEvents();
     syncReaderPrefsControls();
+    updateFocusButtons();
     renderBookGrid();
     showView("library");
   } finally {

@@ -37,6 +37,9 @@
           <button class="nav-button" type="button" data-view-target="reader">
             Lecture
           </button>
+          <button class="nav-button" type="button" data-view-target="artbook">
+            Artbook
+          </button>
         </nav>
       </header>
 
@@ -81,6 +84,16 @@
 
           <form class="editor-layout" id="book-form">
             <aside class="editor-panel">
+              <div class="editor-tabs" role="tablist" aria-label="Type d'édition">
+                <button class="editor-tab is-active" id="editor-tab-book" type="button" role="tab" aria-selected="true" aria-controls="book-editor-panel" data-editor-tab="book">
+                  Livre
+                </button>
+                <button class="editor-tab" id="editor-tab-artbook" type="button" role="tab" aria-selected="false" aria-controls="artbook-editor-panel" data-editor-tab="artbook">
+                  Artbook
+                </button>
+              </div>
+
+              <div class="editor-tab-panel is-active" id="book-editor-panel" role="tabpanel" aria-labelledby="editor-tab-book" data-editor-panel="book">
               <label>
                 Titre
                 <input id="book-title" name="title" required placeholder="Takumi's Adventure" />
@@ -114,6 +127,47 @@
                   <option value="dense">Dense</option>
                 </select>
               </label>
+              </div>
+
+              <div class="editor-tab-panel editor-artbook-panel" id="artbook-editor-panel" role="tabpanel" aria-labelledby="editor-tab-artbook" data-editor-panel="artbook" hidden>
+                <div class="editor-artbook-heading">
+                  <div class="panel-title-row">
+                    <h3>Planches</h3>
+                    <span id="artbook-count">0</span>
+                  </div>
+                  <button class="primary-action" id="add-artbook-item" type="button">Nouvelle planche</button>
+                </div>
+
+                <div class="artbook-list" id="artbook-list" aria-live="polite"></div>
+
+                <label>
+                  Titre de la planche
+                  <input id="artbook-title" type="text" placeholder="Costume de Takumi" />
+                </label>
+                <label>
+                  Description
+                  <textarea id="artbook-description" rows="7" placeholder="Notes de cr&eacute;ation, contexte, d&eacute;tails visuels..."></textarea>
+                </label>
+                <div class="artbook-image-control">
+                  <label>
+                    Image de la planche
+                    <input id="artbook-image-file" type="file" accept="image/*" />
+                  </label>
+                  <div class="artbook-image-preview" id="artbook-image-preview" aria-label="Aper&ccedil;u image artbook"></div>
+                  <label>
+                    URL de l'image
+                    <input id="artbook-image-url" type="url" placeholder="Optionnel : URL d'image" />
+                  </label>
+                  <button class="secondary-action" id="remove-artbook-image" type="button">Retirer l'image</button>
+                </div>
+                <div class="artbook-item-actions">
+                  <button class="primary-action" id="save-artbook-item" type="button">Enregistrer la planche</button>
+                  <button class="secondary-action" id="move-artbook-item-up" type="button">Monter</button>
+                  <button class="secondary-action" id="move-artbook-item-down" type="button">Descendre</button>
+                  <button class="danger-action" id="delete-artbook-item" type="button">Supprimer la planche</button>
+                </div>
+              </div>
+
               <div class="editor-actions">
                 <button class="primary-action" id="save-book" type="submit">Enregistrer le livre</button>
                 <button class="danger-action" id="delete-book" type="button">Supprimer</button>
@@ -177,6 +231,7 @@
                   </div>
                 </section>
               </div>
+
               <details class="bulk-importer">
                 <summary>Importer ou remplacer le livre complet</summary>
               <textarea
@@ -288,6 +343,61 @@
             </section>
           </div>
         </section>
+
+        <section class="view reader-view artbook-view" id="artbook-view" aria-labelledby="artbook-view-title">
+          <div class="reader-empty" id="artbook-empty">
+            <h1 id="artbook-view-title">Aucun artbook sélectionné</h1>
+            <p>Choisis un livre dans la bibliothèque ou ajoute des planches depuis l'atelier.</p>
+            <div class="empty-actions">
+              <button class="primary-action" id="artbook-empty-edit" type="button">
+                Ajouter des planches
+              </button>
+              <button class="secondary-action" type="button" data-view-target="library">
+                Voir la bibliothèque
+              </button>
+            </div>
+          </div>
+
+          <div class="reader-layout" id="artbook-layout" hidden>
+            <aside class="reader-sidebar">
+              <div class="current-book">
+                <span class="mini-cover" id="artbook-mini-cover"></span>
+                <div>
+                  <strong id="artbook-book-title"></strong>
+                  <small id="artbook-book-meta"></small>
+                </div>
+              </div>
+
+              <div class="reader-tools">
+                <button id="artbook-open-reader" type="button">Lire</button>
+                <button id="artbook-edit-book" type="button">Modifier</button>
+                <button id="artbook-focus-toggle" type="button">Plein écran</button>
+              </div>
+
+              <div class="toc">
+                <h2>Planches</h2>
+                <div id="artbook-toc-list"></div>
+              </div>
+            </aside>
+
+            <section class="book-stage" aria-label="Artbook">
+              <div class="reader-controls">
+                <button id="prev-artbook-page" type="button" aria-label="Page précédente">‹</button>
+                <div class="reading-progress">
+                  <span id="artbook-page-indicator">Page 1 / 1</span>
+                  <progress id="artbook-progress-bar" value="0" max="100"></progress>
+                </div>
+                <button id="next-artbook-page" type="button" aria-label="Page suivante">›</button>
+              </div>
+
+              <div class="book-reader artbook-reader" id="artbook-reader" aria-live="polite">
+                <article class="paper-page left-page" id="artbook-left-page"></article>
+                <article class="paper-page right-page" id="artbook-right-page"></article>
+              </div>
+              <button class="focus-exit" id="artbook-focus-exit" type="button">Quitter</button>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -309,6 +419,7 @@
           <div class="book-stats"></div>
           <div class="card-actions">
             <button class="primary-action read-book" type="button">Lire</button>
+            <button class="secondary-action open-artbook" type="button">Artbook</button>
             <button class="secondary-action edit-book" type="button">Modifier</button>
           </div>
         </div>

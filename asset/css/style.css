@@ -440,6 +440,61 @@ textarea:focus {
   padding: 18px;
 }
 
+.editor-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  background: rgba(239, 232, 220, 0.72);
+}
+
+.editor-tab {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 700;
+}
+
+.editor-tab.is-active {
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 6px 16px rgba(43, 34, 24, 0.08);
+}
+
+.editor-tab-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.editor-tab-panel[hidden] {
+  display: none;
+}
+
+.editor-artbook-panel {
+  gap: 14px;
+}
+
+.editor-artbook-heading {
+  display: grid;
+  gap: 10px;
+}
+
+.editor-artbook-heading .panel-title-row {
+  margin-bottom: 0;
+}
+
+.editor-panel .artbook-list {
+  max-height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
 .cover-preview {
   width: 128px;
   aspect-ratio: 2 / 3;
@@ -526,14 +581,25 @@ textarea:focus {
 
 .chapter-toolbar,
 .chapter-actions,
-.import-actions {
+.artbook-item-actions,
+.import-actions,
+.empty-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.chapter-control {
+.card-actions {
+  flex-wrap: wrap;
+}
+
+.card-actions button {
+  flex: 1 1 88px;
+}
+
+.chapter-control,
+.artbook-control {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 14px;
@@ -542,13 +608,17 @@ textarea:focus {
 
 .chapter-list-panel,
 .chapter-editor-panel,
+.artbook-list-panel,
+.artbook-editor-panel,
+.artbook-editor,
 .bulk-importer {
   border: 1px solid rgba(116, 109, 100, 0.24);
   border-radius: 8px;
   background: rgba(255, 250, 242, 0.72);
 }
 
-.chapter-list-panel {
+.chapter-list-panel,
+.artbook-list-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
@@ -581,7 +651,8 @@ textarea:focus {
   font-weight: 700;
 }
 
-.chapter-list {
+.chapter-list,
+.artbook-list {
   display: grid;
   align-content: start;
   gap: 8px;
@@ -589,7 +660,8 @@ textarea:focus {
   overflow: auto;
 }
 
-.chapter-list-item {
+.chapter-list-item,
+.artbook-list-item {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 4px 10px;
@@ -603,12 +675,15 @@ textarea:focus {
 }
 
 .chapter-list-item:hover,
-.chapter-list-item.is-active {
+.chapter-list-item.is-active,
+.artbook-list-item:hover,
+.artbook-list-item.is-active {
   border-color: var(--line);
   background: var(--surface);
 }
 
-.chapter-list-item span {
+.chapter-list-item span,
+.artbook-list-item span {
   grid-row: span 2;
   display: grid;
   width: 28px;
@@ -622,13 +697,16 @@ textarea:focus {
 }
 
 .chapter-list-item strong,
-.chapter-list-item small {
+.chapter-list-item small,
+.artbook-list-item strong,
+.artbook-list-item small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .chapter-list-item small,
+.artbook-list-item small,
 .chapter-empty {
   color: var(--muted);
 }
@@ -648,9 +726,29 @@ textarea:focus {
   padding: 14px;
 }
 
+.artbook-editor {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 14px;
+}
+
+.artbook-editor-panel {
+  display: grid;
+  grid-template-rows: auto auto auto auto;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+}
+
 #chapter-content {
   min-height: 320px;
   height: 100%;
+}
+
+#artbook-description {
+  min-height: 180px;
+  resize: vertical;
 }
 
 .rich-text-editor {
@@ -699,6 +797,48 @@ textarea:focus {
 
 .chapter-illustration-control .secondary-action {
   justify-self: start;
+}
+
+.artbook-image-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 10px 12px;
+  align-items: end;
+}
+
+.artbook-image-preview {
+  grid-row: span 3;
+  width: 180px;
+  aspect-ratio: 4 / 5;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(53, 68, 45, 0.12), rgba(142, 127, 101, 0.18)),
+    var(--surface-2);
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+.artbook-image-control .secondary-action {
+  justify-self: start;
+}
+
+.editor-panel .artbook-image-control {
+  grid-template-columns: 1fr;
+}
+
+.editor-panel .artbook-image-preview {
+  grid-row: auto;
+  width: min(100%, 180px);
+}
+
+.artbook-item-actions {
+  align-items: stretch;
+}
+
+.artbook-item-actions button {
+  flex: 1 1 130px;
 }
 
 .rich-text-editor p {
@@ -1221,6 +1361,63 @@ progress::-moz-progress-bar {
   object-position: center;
 }
 
+.paper-page.artbook-image-page {
+  display: grid;
+  min-height: 680px;
+  padding: 34px 34px 62px;
+}
+
+.artbook-plate {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  min-height: 582px;
+  margin: 0;
+}
+
+.artbook-plate img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  object-position: center;
+}
+
+.artbook-plate figcaption {
+  color: var(--muted);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.paper-page.artbook-description-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.artbook-description-copy {
+  min-height: 0;
+  overflow: auto;
+}
+
+.artbook-description-copy p {
+  text-align: left;
+}
+
+.artbook-description-copy .artbook-muted {
+  color: var(--muted);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
 .reader-view[data-theme="light"] .paper-page {
   background: #fffdf8;
 }
@@ -1306,7 +1503,8 @@ body.reader-focus .focus-exit {
 @media (max-width: 1080px) {
   .editor-layout,
   .reader-layout,
-  .chapter-control {
+  .chapter-control,
+  .artbook-control {
     grid-template-columns: 1fr;
   }
 
@@ -1331,7 +1529,7 @@ body.reader-focus .focus-exit {
 
   .main-nav {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .nav-button,
@@ -1365,17 +1563,20 @@ body.reader-focus .focus-exit {
     padding: 42px 28px 50px;
   }
 
-  .chapter-illustration-control {
+  .chapter-illustration-control,
+  .artbook-image-control {
     grid-template-columns: 1fr;
   }
 
-  .chapter-illustration-preview {
+  .chapter-illustration-preview,
+  .artbook-image-preview {
     grid-row: auto;
     width: 100%;
     max-width: 220px;
   }
 
-  .chapter-illustration-page {
+  .chapter-illustration-page,
+  .artbook-plate {
     min-height: 542px;
   }
 
@@ -1415,7 +1616,8 @@ body.reader-focus .focus-exit {
     box-shadow: 0 12px 28px rgba(43, 34, 24, 0.14);
   }
 
-  .chapter-list-panel {
+  .chapter-list-panel,
+  .artbook-list-panel {
     max-height: 280px;
   }
 
