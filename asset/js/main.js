@@ -46,6 +46,7 @@ const state = {
   readerPrefs: {
     fontSize: 18,
     lineHeight: 1.58,
+    pageWidth: 1020,
     theme: "paper",
     soundEffects: true,
     infiniteScroll: false,
@@ -119,6 +120,7 @@ function loadReaderPrefs() {
   };
   state.readerPrefs.infiniteScroll = Boolean(state.readerPrefs.infiniteScroll);
   state.readerPrefs.sidebarCollapsed = Boolean(state.readerPrefs.sidebarCollapsed);
+  state.readerPrefs.pageWidth = Number(state.readerPrefs.pageWidth) || 1020;
   state.readerPrefs.ambianceTrack = getAmbianceTrack(state.readerPrefs.ambianceTrack).id;
 }
 
@@ -129,10 +131,12 @@ function saveReaderPrefs() {
 function syncReaderPrefsControls() {
   byId("reader-font-size").value = state.readerPrefs.fontSize;
   byId("reader-line-height").value = Math.round(state.readerPrefs.lineHeight * 100);
+  byId("reader-page-width").value = state.readerPrefs.pageWidth;
   byId("reader-theme").value = state.readerPrefs.theme;
   renderAmbianceTrackOptions();
   updateSoundEffectsButton();
   updateInfiniteScrollButton();
+  updateNightModeButton();
 }
 
 function applyReaderPrefs() {
@@ -144,10 +148,13 @@ function applyReaderPrefs() {
   [reader, artbookReader].filter(Boolean).forEach((surface) => {
     surface.style.setProperty("--reader-font-size", `${state.readerPrefs.fontSize}px`);
     surface.style.setProperty("--reader-line-height", state.readerPrefs.lineHeight);
+    surface.style.setProperty("--book-max-width", `${state.readerPrefs.pageWidth || 1020}px`);
   });
   [view, artbookView].filter(Boolean).forEach((surfaceView) => {
     surfaceView.dataset.theme = state.readerPrefs.theme;
   });
+  document.body.classList.toggle("reader-night-theme", state.readerPrefs.theme === "night");
+  updateNightModeButton();
 }
 
 const sampleText = `Prologue
@@ -2420,6 +2427,7 @@ function updateReaderProgressUI(book, options = {}) {
   const currentPageLabel = `Page ${state.currentPage + 1} / ${state.pages.length}`;
   const progressValue = state.pages.length <= 1 ? 100 : Math.round((state.currentPage / (state.pages.length - 1)) * 100);
   const resumePage = Math.min(Math.max(getResumePage(book), 0), Math.max(0, state.pages.length - 1));
+  const currentChapter = book.chapters.find((chapter) => chapter.id === state.pages[state.currentPage]?.chapterId);
   if (options.updateIndicator !== false) {
     byId("page-indicator").textContent = currentPageLabel;
     byId("progress-bar").value = progressValue;
@@ -2428,6 +2436,9 @@ function updateReaderProgressUI(book, options = {}) {
   }
   byId("sidebar-page-indicator").textContent = currentPageLabel;
   byId("sidebar-progress-bar").value = progressValue;
+  byId("chapter-indicator").textContent = currentChapter?.title || `${progressValue}% du livre`;
+  byId("reader-bookmark-chip").hidden = !Number.isInteger(book.bookmarkPage);
+  byId("reader-bookmark-chip").textContent = Number.isInteger(book.bookmarkPage) ? `Marque-page p. ${book.bookmarkPage + 1}` : "";
   byId("floating-bookmark-button").setAttribute("aria-pressed", isBookmarked ? "true" : "false");
   byId("bookmark-button").textContent = isBookmarked ? "Marque-page pos\u00e9" : "Marque-page";
   byId("bookmark-button").setAttribute("aria-pressed", isBookmarked ? "true" : "false");
@@ -2495,6 +2506,8 @@ function renderReader() {
     updateSoundEffectsButton();
     byId("prev-page").disabled = state.currentPage <= 0;
     byId("next-page").disabled = state.currentPage >= state.pages.length - 1;
+    byId("page-hotspot-left").disabled = state.currentPage <= 0;
+    byId("page-hotspot-right").disabled = state.currentPage >= state.pages.length - 1;
     renderToc(book);
     renderBookSearchResults();
     window.requestAnimationFrame(() => scrollToContinuousPage(state.currentPage, "auto"));
@@ -2526,6 +2539,8 @@ function renderReader() {
   updateSoundEffectsButton();
   byId("prev-page").disabled = isMobile ? state.currentPage <= 0 : leftIndex <= 0;
   byId("next-page").disabled = isMobile ? state.currentPage >= state.pages.length - 1 : leftIndex + 2 >= state.pages.length;
+  byId("page-hotspot-left").disabled = byId("prev-page").disabled;
+  byId("page-hotspot-right").disabled = byId("next-page").disabled;
 
   renderToc(book);
   renderBookSearchResults();
@@ -2615,7 +2630,11 @@ function renderToc(book) {
     const pageIndex = findChapterStartPage(state.pages, chapter.id);
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = `${chapter.title} · p. ${pageIndex + 1}`;
+    button.innerHTML = `
+      <span class="toc-title">${escapeHtml(chapter.title)}</span>
+      <span class="toc-meta">Page ${pageIndex + 1}</span>
+    `;
+    button.setAttribute("aria-label", `${chapter.title}, commence page ${pageIndex + 1}`);
     button.classList.toggle("is-active", state.pages[state.currentPage]?.chapterId === chapter.id);
     button.addEventListener("click", () => goToPage(pageIndex));
     list.appendChild(button);
@@ -2920,7 +2939,7 @@ function animateSingleArtbookPageTurn(fromPage, toPage) {
     sheet.remove();
     reader.classList.remove("is-turning");
     state.isAnimating = false;
-  }, 660);
+  }, 540);
 }
 
 function animateArtbookPageFlutter(fromPage, toPage, distance) {
@@ -2944,7 +2963,7 @@ function animateArtbookPageFlutter(fromPage, toPage, distance) {
     reader.querySelectorAll(".flutter-sheet").forEach((sheet) => sheet.remove());
     reader.classList.remove("is-fluttering", "flutter-forward", "flutter-backward");
     state.isAnimating = false;
-  }, sheetCount * 42 + 720);
+  }, sheetCount * 42 + 600);
 }
 
 function changeArtbookPageFromPaper(side) {
@@ -3038,6 +3057,23 @@ function updateReaderPreference(key, value) {
     return;
   }
   applyReaderPrefs();
+}
+
+function updateNightModeButton() {
+  const button = byId("reader-night-toggle");
+  if (!button) return;
+
+  const isNight = state.readerPrefs.theme === "night";
+  button.textContent = isNight ? "Jour" : "Nuit";
+  button.setAttribute("aria-pressed", isNight ? "true" : "false");
+  button.setAttribute("aria-label", isNight ? "Revenir au thème papier" : "Activer le mode nuit");
+  button.dataset.tooltip = isNight ? "Mode jour" : "Mode nuit";
+}
+
+function toggleNightMode() {
+  updateReaderPreference("theme", state.readerPrefs.theme === "night" ? "paper" : "night");
+  const themeSelect = byId("reader-theme");
+  if (themeSelect) themeSelect.value = state.readerPrefs.theme;
 }
 
 function updateFocusButtons() {
@@ -3716,6 +3752,16 @@ function bindEvents() {
   byId("delete-book").addEventListener("click", deleteCurrentBook);
   byId("prev-page").addEventListener("click", () => changePageByDirection("backward"));
   byId("next-page").addEventListener("click", () => changePageByDirection("forward"));
+  byId("page-hotspot-left").addEventListener("click", () => changePageByDirection("backward"));
+  byId("page-hotspot-right").addEventListener("click", () => changePageByDirection("forward"));
+  byId("scroll-top-button").addEventListener("click", () => {
+    if (isInfiniteScrollActive()) {
+      goToPage(0);
+      return;
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
   byId("left-page").addEventListener("click", (event) => changePageFromPaperClick(event, "left"));
   byId("right-page").addEventListener("click", (event) => changePageFromPaperClick(event, "right"));
   byId("book-reader").addEventListener("wheel", changePageFromWheel, { passive: false });
@@ -3735,6 +3781,7 @@ function bindEvents() {
   byId("reader-settings-toggle").addEventListener("click", () => {
     byId("reader-settings").hidden = !byId("reader-settings").hidden;
   });
+  byId("reader-night-toggle").addEventListener("click", toggleNightMode);
   byId("reader-focus-toggle").addEventListener("click", toggleReaderFocus);
   byId("focus-exit").addEventListener("click", exitReaderFocus);
   byId("artbook-empty-edit").addEventListener("click", () => {
@@ -3764,6 +3811,7 @@ function bindEvents() {
   byId("artbook-reader").addEventListener("touchend", handleArtbookTouchEnd, { passive: true });
   byId("reader-font-size").addEventListener("input", (event) => updateReaderPreference("fontSize", Number(event.target.value)));
   byId("reader-line-height").addEventListener("input", (event) => updateReaderPreference("lineHeight", Number(event.target.value) / 100));
+  byId("reader-page-width").addEventListener("input", (event) => updateReaderPreference("pageWidth", Number(event.target.value)));
   byId("reader-theme").addEventListener("change", (event) => updateReaderPreference("theme", event.target.value));
   byId("ambiance-track").addEventListener("change", (event) => updateAmbianceTrack(event.target.value));
   byId("book-search").addEventListener("input", renderBookSearchResults);
