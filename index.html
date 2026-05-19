@@ -27,20 +27,6 @@
           </span>
         </a>
 
-        <nav class="main-nav" aria-label="Navigation principale">
-          <button class="nav-button is-active" type="button" data-view-target="library">
-            Bibliothèque
-          </button>
-          <button class="nav-button" type="button" data-view-target="editor">
-            Ajouter
-          </button>
-          <button class="nav-button" type="button" data-view-target="reader">
-            Lecture
-          </button>
-          <button class="nav-button" type="button" data-view-target="artbook">
-            Artbook
-          </button>
-        </nav>
       </header>
 
       <main>
@@ -261,33 +247,52 @@
           </div>
 
           <div class="reader-layout" id="reader-layout" hidden>
-            <aside class="reader-sidebar">
+            <button class="reader-sidebar-toggle" id="reader-sidebar-toggle" type="button" aria-expanded="true" aria-controls="reader-sidebar">
+              Masquer le panneau
+            </button>
+
+            <aside class="reader-sidebar" id="reader-sidebar">
               <div class="current-book">
                 <span class="mini-cover" id="reader-mini-cover"></span>
                 <div>
                   <strong id="reader-book-title"></strong>
                   <small id="reader-book-meta"></small>
+                  <div class="reader-card-progress" aria-label="Progression de lecture">
+                    <span id="sidebar-page-indicator">Page 1 / 1</span>
+                    <progress id="sidebar-progress-bar" value="0" max="100"></progress>
+                  </div>
                 </div>
               </div>
 
-              <div class="reader-tools">
-                <button id="bookmark-button" type="button">Marque-page</button>
-                <button id="resume-button" type="button">Reprendre</button>
-                <button class="audio-toggle" id="ambiance-toggle" type="button" aria-expanded="false" aria-pressed="false">Ambiance</button>
-                <button class="sound-effects-toggle" id="sound-effects-toggle" type="button" aria-pressed="false">Sons</button>
-                <button class="infinite-scroll-toggle" id="infinite-scroll-toggle" type="button" aria-pressed="false">Scroll infini</button>
-                <button id="reader-settings-toggle" type="button">Aa</button>
-                <button id="reader-focus-toggle" type="button">Plein écran</button>
+              <div class="reader-tools" aria-label="Actions de lecture">
+                <button class="reader-tool reader-tool-resume" id="resume-button" type="button" data-tooltip="Reprendre la lecture">Reprendre</button>
+                <button class="reader-tool" id="bookmark-button" type="button" data-tooltip="Marquer la page">Marque-page</button>
+                <button class="reader-tool audio-toggle" id="ambiance-toggle" type="button" aria-expanded="false" aria-pressed="false" data-tooltip="Réglages audio">Audio</button>
+                <button class="reader-tool infinite-scroll-toggle" id="infinite-scroll-toggle" type="button" aria-pressed="false" data-tooltip="Changer le mode de lecture">Scroll infini</button>
+                <button class="reader-tool" id="reader-settings-toggle" type="button" aria-label="Réglages de lecture" data-tooltip="Réglages de lecture">Texte</button>
+                <button class="reader-tool" id="reader-focus-toggle" type="button" data-tooltip="Mode plein écran">Écran</button>
               </div>
 
-              <div class="ambiance-panel" id="ambiance-panel" hidden>
-                <label>
-                  Son d’ambiance
-                  <select id="ambiance-track"></select>
-                </label>
-                <button class="primary-action ambiance-play-toggle" id="ambiance-play-toggle" type="button" aria-pressed="false">
-                  Lancer l’ambiance
-                </button>
+              <div class="ambiance-panel audio-panel" id="ambiance-panel" hidden>
+                <div class="audio-panel-row">
+                  <div>
+                    <strong>Sons du site</strong>
+                    <span>Pages et ambiance</span>
+                  </div>
+                  <button class="sound-effects-toggle" id="sound-effects-toggle" type="button" aria-pressed="false" aria-label="Activer ou couper les sons">
+                    Sons actifs
+                  </button>
+                </div>
+
+                <div class="audio-panel-row">
+                  <label>
+                    Ambiance
+                    <select id="ambiance-track"></select>
+                  </label>
+                  <button class="primary-action ambiance-play-toggle" id="ambiance-play-toggle" type="button" aria-pressed="false">
+                    Lancer
+                  </button>
+                </div>
               </div>
 
               <div class="reader-settings" id="reader-settings" hidden>
@@ -309,16 +314,18 @@
                 </label>
               </div>
 
-              <label class="reader-search">
-                Rechercher dans le livre
-                <input id="book-search" type="search" placeholder="Mot ou phrase…" />
-              </label>
-              <div class="reader-search-results" id="book-search-results"></div>
+              <div class="reader-quick-access">
+                <label class="reader-search">
+                  Rechercher
+                  <input id="book-search" type="search" placeholder="Mot ou phrase…" />
+                </label>
 
-              <label class="page-jump">
-                Page
-                <input id="page-jump" type="number" min="1" value="1" />
-              </label>
+                <label class="page-jump">
+                  Aller à la page
+                  <input id="page-jump" type="number" min="1" value="1" />
+                </label>
+              </div>
+              <div class="reader-search-results" id="book-search-results"></div>
 
               <div class="toc">
                 <h2>Sommaire</h2>
