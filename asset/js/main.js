@@ -2402,14 +2402,25 @@ function scrollToContinuousPage(pageIndex, behavior = "smooth") {
 
 function updateReaderProgressUI(book, options = {}) {
   const isBookmarked = book.bookmarkPage === state.currentPage;
+  const currentPageLabel = `Page ${state.currentPage + 1} / ${state.pages.length}`;
+  const progressValue = state.pages.length <= 1 ? 100 : Math.round((state.currentPage / (state.pages.length - 1)) * 100);
+  const resumePage = Math.min(Math.max(getResumePage(book), 0), Math.max(0, state.pages.length - 1));
   if (options.updateIndicator !== false) {
-    byId("page-indicator").textContent = `Page ${state.currentPage + 1} / ${state.pages.length}`;
-    byId("progress-bar").value = state.pages.length <= 1 ? 100 : Math.round((state.currentPage / (state.pages.length - 1)) * 100);
+    byId("page-indicator").textContent = currentPageLabel;
+    byId("progress-bar").value = progressValue;
     byId("page-jump").max = state.pages.length;
     byId("page-jump").value = state.currentPage + 1;
   }
+  byId("sidebar-page-indicator").textContent = currentPageLabel;
+  byId("sidebar-progress-bar").value = progressValue;
   byId("floating-bookmark-button").setAttribute("aria-pressed", isBookmarked ? "true" : "false");
   byId("bookmark-button").textContent = isBookmarked ? "Marque-page pos\u00e9" : "Marque-page";
+  byId("bookmark-button").setAttribute("aria-pressed", isBookmarked ? "true" : "false");
+  byId("bookmark-button").setAttribute("aria-label", isBookmarked ? "Page déjà marquée" : "Marquer cette page");
+  byId("bookmark-button").dataset.tooltip = isBookmarked ? "Page marquée" : "Marquer la page";
+  byId("resume-button").textContent = `Reprendre page ${resumePage + 1}`;
+  byId("resume-button").setAttribute("aria-label", `Reprendre la lecture page ${resumePage + 1}`);
+  byId("resume-button").dataset.tooltip = `Reprendre page ${resumePage + 1}`;
   byId("floating-bookmark-button").textContent = isBookmarked ? "Page marqu\u00e9e" : "Marquer cette page";
 }
 
@@ -2504,6 +2515,16 @@ function renderReader() {
   renderBookSearchResults();
 }
 
+function toggleReaderSidebar() {
+  const layout = byId("reader-layout");
+  const button = byId("reader-sidebar-toggle");
+  if (!layout || !button) return;
+
+  const isCollapsed = layout.classList.toggle("is-sidebar-collapsed");
+  button.textContent = isCollapsed ? "Afficher le panneau" : "Masquer le panneau";
+  button.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+}
+
 function renderPage(container, page, index, book) {
   container.classList.toggle("illustration-page", Boolean(page?.illustration));
 
@@ -2553,6 +2574,15 @@ function isDialogueParagraph(paragraph) {
 function renderToc(book) {
   const list = byId("toc-list");
   list.innerHTML = "";
+  const currentChapterId = state.pages[state.currentPage]?.chapterId;
+  const currentChapter = book.chapters.find((chapter) => chapter.id === currentChapterId);
+
+  if (currentChapter) {
+    const current = document.createElement("div");
+    current.className = "toc-current";
+    current.innerHTML = `Chapitre en cours <span>${escapeHtml(currentChapter.title)}</span>`;
+    list.appendChild(current);
+  }
 
   book.chapters.forEach((chapter) => {
     const pageIndex = findChapterStartPage(state.pages, chapter.id);
@@ -2955,10 +2985,11 @@ function updateReaderPreference(key, value) {
 }
 
 function updateFocusButtons() {
-  const label = document.body.classList.contains("reader-focus") ? "Quitter" : "Plein écran";
+  const isFocus = document.body.classList.contains("reader-focus");
   ["reader-focus-toggle", "artbook-focus-toggle"].forEach((id) => {
     const button = byId(id);
-    if (button) button.textContent = label;
+    if (!button) return;
+    button.textContent = isFocus ? "Quitter" : (id === "reader-focus-toggle" ? "Écran" : "Plein écran");
   });
 }
 
@@ -3024,20 +3055,36 @@ function updateSoundEffectsButton() {
   if (!button) return;
 
   const isMuted = !state.readerPrefs.soundEffects;
-  button.textContent = isMuted ? "Sons coupés" : "Sons";
+  button.textContent = isMuted ? "Sons coupés" : "Sons actifs";
   button.setAttribute("aria-pressed", isMuted ? "true" : "false");
-  button.setAttribute("aria-label", isMuted ? "Réactiver les effets sonores" : "Couper les effets sonores");
+  button.setAttribute("aria-label", isMuted ? "Réactiver tous les sons du site" : "Couper tous les sons du site");
+
+  const audioButton = byId("ambiance-toggle");
+  if (audioButton) {
+    audioButton.setAttribute("aria-pressed", isMuted || state.isAmbianceEnabled ? "true" : "false");
+    audioButton.dataset.tooltip = isMuted ? "Audio coupé" : "Réglages audio";
+  }
+
+  updateAmbiancePlayButton();
 }
 
 function toggleSoundEffects() {
   state.readerPrefs.soundEffects = !state.readerPrefs.soundEffects;
   saveReaderPrefs();
-  updateSoundEffectsButton();
 
   if (!state.readerPrefs.soundEffects && state.pageFlipAudio) {
     state.pageFlipAudio.pause();
     state.pageFlipAudio.currentTime = 0;
   }
+
+  if (!state.readerPrefs.soundEffects) {
+    updateSoundEffectsButton();
+    updateAmbianceButton();
+    stopAmbiance();
+    return;
+  }
+
+  updateSoundEffectsButton();
 }
 
 function updateInfiniteScrollButton() {
@@ -3050,6 +3097,7 @@ function updateInfiniteScrollButton() {
   button.textContent = isActive ? "Pages" : "Scroll infini";
   button.setAttribute("aria-pressed", isActive ? "true" : "false");
   button.setAttribute("aria-label", isActive ? "Revenir au mode pages" : "Activer le scroll infini");
+  button.dataset.tooltip = isActive ? "Mode pages" : "Scroll infini";
 }
 
 function toggleInfiniteScroll() {
@@ -3108,10 +3156,12 @@ function updateAmbianceButton() {
 
   const panel = byId("ambiance-panel");
   const isPanelOpen = Boolean(panel && !panel.hidden);
-  button.textContent = state.isAmbianceEnabled ? "Ambiance active" : "Ambiance";
-  button.setAttribute("aria-pressed", state.isAmbianceEnabled ? "true" : "false");
+  const isMuted = !state.readerPrefs.soundEffects;
+  button.textContent = isMuted ? "Audio coupé" : "Audio";
+  button.setAttribute("aria-pressed", isMuted || state.isAmbianceEnabled ? "true" : "false");
   button.setAttribute("aria-expanded", isPanelOpen ? "true" : "false");
-  button.setAttribute("aria-label", isPanelOpen ? "Fermer le panneau d’ambiance" : "Ouvrir le panneau d’ambiance");
+  button.setAttribute("aria-label", isPanelOpen ? "Fermer les réglages audio" : "Ouvrir les réglages audio");
+  button.dataset.tooltip = isMuted ? "Audio coupé" : "Réglages audio";
   updateAmbiancePlayButton();
 }
 
@@ -3120,9 +3170,11 @@ function updateAmbiancePlayButton() {
   if (!button) return;
 
   const track = getAmbianceTrack();
-  button.textContent = state.isAmbianceEnabled ? "Couper l’ambiance" : "Lancer l’ambiance";
+  const isMuted = !state.readerPrefs.soundEffects;
+  button.disabled = isMuted;
+  button.textContent = isMuted ? "Sons coupés" : (state.isAmbianceEnabled ? "Couper" : "Lancer");
   button.setAttribute("aria-pressed", state.isAmbianceEnabled ? "true" : "false");
-  button.setAttribute("aria-label", state.isAmbianceEnabled ? `Couper l’ambiance ${track.label}` : `Lancer l’ambiance ${track.label}`);
+  button.setAttribute("aria-label", isMuted ? "Réactive les sons du site pour lancer l’ambiance" : (state.isAmbianceEnabled ? `Couper l’ambiance ${track.label}` : `Lancer l’ambiance ${track.label}`));
 }
 
 function toggleAmbiancePanel() {
@@ -3166,6 +3218,12 @@ function fadeAmbianceVolume(targetVolume, onComplete = null, audio = state.ambia
 }
 
 function startAmbiance() {
+  if (!state.readerPrefs.soundEffects) {
+    updateSoundEffectsButton();
+    updateAmbianceButton();
+    return;
+  }
+
   const track = getAmbianceTrack();
   const audio = getAmbianceAudio();
   state.isAmbianceEnabled = true;
@@ -3237,7 +3295,7 @@ function updateAmbianceTrack(trackId) {
 
   if (nextTrack.id === previousTrack.id) return;
 
-  if (state.isAmbianceEnabled) {
+  if (state.isAmbianceEnabled && state.readerPrefs.soundEffects) {
     stopAmbiance(() => startAmbiance());
     return;
   }
@@ -3606,6 +3664,7 @@ function bindEvents() {
   byId("book-reader").addEventListener("wheel", changePageFromWheel, { passive: false });
   byId("book-reader").addEventListener("touchstart", handleTouchStart, { passive: true });
   byId("book-reader").addEventListener("touchend", handleTouchEnd, { passive: true });
+  byId("reader-sidebar-toggle").addEventListener("click", toggleReaderSidebar);
   byId("bookmark-button").addEventListener("click", setBookmark);
   byId("floating-bookmark-button").addEventListener("click", setBookmark);
   byId("resume-button").addEventListener("click", () => {
