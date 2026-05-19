@@ -947,6 +947,16 @@ textarea:focus {
   background: rgba(156, 61, 53, 0.08);
 }
 
+.reader-tools .infinite-scroll-toggle {
+  display: none;
+}
+
+.reader-tools .infinite-scroll-toggle[aria-pressed="true"] {
+  color: #fff;
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
 .ambiance-panel {
   gap: 12px;
 }
@@ -1228,6 +1238,70 @@ progress::-moz-progress-bar {
   filter: brightness(0.96);
 }
 
+.book-reader.is-infinite-scroll {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  width: min(760px, 100%);
+  min-height: 0;
+  border: 1px solid rgba(139, 119, 88, 0.22);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(90, 73, 53, 0.055), transparent 12%, transparent 88%, rgba(90, 73, 53, 0.045)),
+    var(--paper);
+  box-shadow: 0 18px 42px rgba(43, 34, 24, 0.12);
+  filter: none;
+  perspective: none;
+}
+
+.book-reader.is-infinite-scroll::before,
+.book-reader.is-infinite-scroll > .left-page,
+.book-reader.is-infinite-scroll > .right-page {
+  display: none;
+}
+
+.book-reader.is-infinite-scroll .continuous-page {
+  min-height: auto;
+  overflow: visible;
+  border-radius: 0;
+  padding: clamp(34px, 5.6vw, 58px) clamp(28px, 7vw, 70px) clamp(30px, 5vw, 50px);
+  background: transparent;
+  cursor: default;
+}
+
+.book-reader.is-infinite-scroll .continuous-page + .continuous-page {
+  border-top: 1px solid rgba(139, 119, 88, 0.14);
+}
+
+.book-reader.is-infinite-scroll .continuous-page h2 {
+  margin-top: 0.15em;
+}
+
+.book-reader.is-infinite-scroll .continuous-page p {
+  text-align: left;
+}
+
+.book-reader.is-infinite-scroll .page-kicker {
+  color: rgba(116, 109, 100, 0.72);
+}
+
+.book-reader.is-infinite-scroll .page-number {
+  right: clamp(22px, 5vw, 44px);
+  bottom: 18px;
+  color: rgba(116, 109, 100, 0.76);
+  letter-spacing: 0;
+}
+
+.floating-bookmark-button {
+  display: none;
+}
+
+.floating-bookmark-button[aria-pressed="true"] {
+  color: #fff;
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
 @keyframes pageTurnForward {
   0% {
     opacity: 1;
@@ -1428,6 +1502,20 @@ progress::-moz-progress-bar {
     #efe1c8;
 }
 
+.reader-view[data-theme="light"] .book-reader.is-infinite-scroll {
+  background: #fffdf8;
+}
+
+.reader-view[data-theme="sepia"] .book-reader.is-infinite-scroll {
+  background:
+    linear-gradient(90deg, rgba(90, 73, 53, 0.055), transparent 12%, transparent 88%, rgba(90, 73, 53, 0.045)),
+    #efe1c8;
+}
+
+.reader-view[data-theme] .book-reader.is-infinite-scroll .continuous-page {
+  background: transparent;
+}
+
 body.reader-focus .topbar,
 body.reader-focus .reader-sidebar,
 body.reader-focus .reader-controls {
@@ -1512,6 +1600,41 @@ body.reader-focus .focus-exit {
     position: static;
     max-height: none;
   }
+
+  .reader-tools .infinite-scroll-toggle {
+    display: block;
+  }
+
+  .reader-layout.is-infinite-scroll .reader-controls {
+    position: sticky;
+    top: 68px;
+    z-index: 12;
+    padding: 10px;
+    border: 1px solid rgba(217, 210, 198, 0.86);
+    border-radius: 8px;
+    background: rgba(255, 250, 242, 0.92);
+    box-shadow: 0 12px 28px rgba(43, 34, 24, 0.12);
+    backdrop-filter: blur(12px);
+  }
+
+  .reader-layout.is-infinite-scroll .floating-bookmark-button {
+    position: fixed;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 35;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    max-width: min(250px, calc(100vw - 28px));
+    border: 1px solid rgba(53, 68, 45, 0.35);
+    border-radius: 8px;
+    padding: 0 16px;
+    color: #fff;
+    background: var(--accent-strong);
+    box-shadow: 0 14px 30px rgba(43, 34, 24, 0.22);
+    font-weight: 700;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1561,6 +1684,18 @@ body.reader-focus .focus-exit {
   .paper-page {
     min-height: 620px;
     padding: 42px 28px 50px;
+  }
+
+  .book-reader.is-infinite-scroll {
+    width: 100%;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: 0 10px 28px rgba(43, 34, 24, 0.08);
+  }
+
+  .book-reader.is-infinite-scroll .continuous-page {
+    padding: 34px 24px 44px;
   }
 
   .chapter-illustration-control,

@@ -48,6 +48,7 @@ const state = {
     lineHeight: 1.58,
     theme: "paper",
     soundEffects: true,
+    infiniteScroll: false,
     ambianceTrack: "ambiance",
   },
   touchStartX: 0,
@@ -58,6 +59,7 @@ const state = {
   isBusy: false,
   busyDepth: 0,
   lastWheelTurnAt: 0,
+  suppressContinuousProgressUntil: 0,
   pageFlipAudio: null,
   ambianceAudio: null,
   ambianceFadeFrame: 0,
@@ -91,11 +93,17 @@ function setReadingProgress(bookId, page) {
   localStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(progress));
 }
 
+function getResumePage(book) {
+  const bookmarkPage = Number.isInteger(book?.bookmarkPage) ? book.bookmarkPage : null;
+  return bookmarkPage ?? getReadingProgress(book.id) ?? 0;
+}
+
 function loadReaderPrefs() {
   state.readerPrefs = {
     ...state.readerPrefs,
     ...readJsonStorage(READER_PREFS_KEY, {}),
   };
+  state.readerPrefs.infiniteScroll = Boolean(state.readerPrefs.infiniteScroll);
   state.readerPrefs.ambianceTrack = getAmbianceTrack(state.readerPrefs.ambianceTrack).id;
 }
 
@@ -109,6 +117,7 @@ function syncReaderPrefsControls() {
   byId("reader-theme").value = state.readerPrefs.theme;
   renderAmbianceTrackOptions();
   updateSoundEffectsButton();
+  updateInfiniteScrollButton();
 }
 
 function applyReaderPrefs() {
@@ -2298,7 +2307,8 @@ function openReader(bookId, page = null) {
   byId("reader-layout").hidden = false;
   byId("reader-empty").hidden = true;
   state.pages = paginateBook(book);
-  state.currentPage = Math.min(Math.max(page ?? getReadingProgress(book.id) ?? book.bookmarkPage ?? 0, 0), state.pages.length - 1);
+  const defaultPage = isInfiniteScrollActive() ? 0 : getReadingProgress(book.id) ?? book.bookmarkPage ?? 0;
+  state.currentPage = Math.min(Math.max(page ?? defaultPage, 0), state.pages.length - 1);
 
   renderReader();
 }
@@ -2337,6 +2347,98 @@ function repaginateActiveBook() {
   renderReader();
 }
 
+function isInfiniteScrollAvailable() {
+  return window.matchMedia("(max-width: 1080px)").matches;
+}
+
+function isInfiniteScrollActive() {
+  return state.readerPrefs.infiniteScroll && isInfiniteScrollAvailable();
+}
+
+function ensurePagedReaderShell(reader) {
+  let leftPage = byId("left-page");
+  let rightPage = byId("right-page");
+
+  if (!leftPage) {
+    leftPage = document.createElement("article");
+    leftPage.className = "paper-page left-page";
+    leftPage.id = "left-page";
+    leftPage.addEventListener("click", (event) => changePageFromPaperClick(event, "left"));
+    reader.prepend(leftPage);
+  }
+
+  if (!rightPage) {
+    rightPage = document.createElement("article");
+    rightPage.className = "paper-page right-page";
+    rightPage.id = "right-page";
+    rightPage.addEventListener("click", (event) => changePageFromPaperClick(event, "right"));
+    reader.append(rightPage);
+  }
+}
+
+function renderContinuousReader(book) {
+  const reader = byId("book-reader");
+  ensurePagedReaderShell(reader);
+  reader.querySelectorAll(".continuous-page").forEach((page) => page.remove());
+
+  state.pages.forEach((page, index) => {
+    const container = document.createElement("article");
+    container.className = "paper-page continuous-page";
+    container.dataset.pageIndex = index;
+    renderPage(container, page, index, book);
+    reader.append(container);
+  });
+}
+
+function scrollToContinuousPage(pageIndex, behavior = "smooth") {
+  if (!isInfiniteScrollActive()) return;
+
+  const target = byId("book-reader")?.querySelector(`.continuous-page[data-page-index="${pageIndex}"]`);
+  if (!target) return;
+
+  state.suppressContinuousProgressUntil = Date.now() + 650;
+  target.scrollIntoView({ block: "start", behavior });
+}
+
+function updateReaderProgressUI(book, options = {}) {
+  const isBookmarked = book.bookmarkPage === state.currentPage;
+  if (options.updateIndicator !== false) {
+    byId("page-indicator").textContent = `Page ${state.currentPage + 1} / ${state.pages.length}`;
+    byId("progress-bar").value = state.pages.length <= 1 ? 100 : Math.round((state.currentPage / (state.pages.length - 1)) * 100);
+    byId("page-jump").max = state.pages.length;
+    byId("page-jump").value = state.currentPage + 1;
+  }
+  byId("floating-bookmark-button").setAttribute("aria-pressed", isBookmarked ? "true" : "false");
+  byId("bookmark-button").textContent = isBookmarked ? "Marque-page pos\u00e9" : "Marque-page";
+  byId("floating-bookmark-button").textContent = isBookmarked ? "Page marqu\u00e9e" : "Marquer cette page";
+}
+
+function updateContinuousReadingProgress() {
+  if (!isInfiniteScrollActive() || !byId("reader-view").classList.contains("is-active")) return;
+  if (Date.now() < state.suppressContinuousProgressUntil) return;
+
+  const pages = Array.from(byId("book-reader").querySelectorAll(".continuous-page"));
+  if (!pages.length) return;
+
+  const referenceY = Math.min(window.innerHeight * 0.42, 260);
+  const closest = pages.reduce((currentClosest, page) => {
+    const distance = Math.abs(page.getBoundingClientRect().top - referenceY);
+    return distance < currentClosest.distance ? { page, distance } : currentClosest;
+  }, { page: pages[0], distance: Infinity }).page;
+
+  const nextPage = Number(closest.dataset.pageIndex || 0);
+  if (nextPage === state.currentPage) return;
+
+  state.currentPage = nextPage;
+  const book = getBook(state.activeBookId);
+  if (!book) return;
+
+  setReadingProgress(book.id, state.currentPage);
+  updateReaderProgressUI(book, { updateIndicator: false });
+  renderToc(book);
+  renderBookSearchResults();
+}
+
 function renderReader() {
   const book = getBook(state.activeBookId);
   if (!book) {
@@ -2352,6 +2454,29 @@ function renderReader() {
   byId("reader-book-meta").textContent = `${book.author || "Auteur inconnu"} · ${state.pages.length} pages`;
   byId("reader-mini-cover").style.backgroundImage = coverBackground(book);
   applyReaderPrefs();
+  updateInfiniteScrollButton();
+
+  const infiniteScrollActive = isInfiniteScrollActive();
+  byId("reader-layout").classList.toggle("is-infinite-scroll", infiniteScrollActive);
+  byId("book-reader").classList.toggle("is-infinite-scroll", infiniteScrollActive);
+  byId("floating-bookmark-button").hidden = !infiniteScrollActive;
+
+  if (infiniteScrollActive) {
+    renderContinuousReader(book);
+    updateReaderProgressUI(book);
+    updateAmbianceButton();
+    updateSoundEffectsButton();
+    byId("prev-page").disabled = state.currentPage <= 0;
+    byId("next-page").disabled = state.currentPage >= state.pages.length - 1;
+    renderToc(book);
+    renderBookSearchResults();
+    window.requestAnimationFrame(() => scrollToContinuousPage(state.currentPage, "auto"));
+    return;
+  }
+
+  ensurePagedReaderShell(byId("book-reader"));
+  byId("book-reader").querySelectorAll(".continuous-page").forEach((page) => page.remove());
+  byId("floating-bookmark-button").hidden = true;
 
   const isMobile = window.matchMedia("(max-width: 760px)").matches;
   const leftIndex = isMobile ? state.currentPage : state.currentPage - (state.currentPage % 2);
@@ -2369,7 +2494,7 @@ function renderReader() {
   byId("progress-bar").value = state.pages.length <= 1 ? 100 : Math.round((state.currentPage / (state.pages.length - 1)) * 100);
   byId("page-jump").max = state.pages.length;
   byId("page-jump").value = state.currentPage + 1;
-  byId("bookmark-button").textContent = book.bookmarkPage === state.currentPage ? "Marque-page posé" : "Marque-page";
+  updateReaderProgressUI(book, { updateIndicator: false });
   updateAmbianceButton();
   updateSoundEffectsButton();
   byId("prev-page").disabled = isMobile ? state.currentPage <= 0 : leftIndex <= 0;
@@ -2863,6 +2988,8 @@ function handleTouchStart(event) {
 }
 
 function handleTouchEnd(event) {
+  if (isInfiniteScrollActive()) return;
+
   const touch = event.changedTouches[0];
   const deltaX = touch.clientX - state.touchStartX;
   const deltaY = touch.clientY - state.touchStartY;
@@ -2911,6 +3038,24 @@ function toggleSoundEffects() {
     state.pageFlipAudio.pause();
     state.pageFlipAudio.currentTime = 0;
   }
+}
+
+function updateInfiniteScrollButton() {
+  const button = byId("infinite-scroll-toggle");
+  if (!button) return;
+
+  const isAvailable = isInfiniteScrollAvailable();
+  const isActive = isInfiniteScrollActive();
+  button.hidden = !isAvailable;
+  button.textContent = isActive ? "Pages" : "Scroll infini";
+  button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  button.setAttribute("aria-label", isActive ? "Revenir au mode pages" : "Activer le scroll infini");
+}
+
+function toggleInfiniteScroll() {
+  state.readerPrefs.infiniteScroll = !state.readerPrefs.infiniteScroll;
+  saveReaderPrefs();
+  renderReader();
 }
 
 function getAmbianceTrack(trackId = state.readerPrefs.ambianceTrack) {
@@ -3111,6 +3256,20 @@ function toggleAmbiance() {
 
 function goToPage(pageIndex) {
   const nextPage = Math.min(Math.max(pageIndex, 0), state.pages.length - 1);
+
+  if (isInfiniteScrollActive()) {
+    state.currentPage = nextPage;
+    const book = getBook(state.activeBookId);
+    if (book) {
+      setReadingProgress(book.id, state.currentPage);
+      updateReaderProgressUI(book);
+      renderToc(book);
+      renderBookSearchResults();
+    }
+    scrollToContinuousPage(nextPage);
+    return;
+  }
+
   if (nextPage === state.currentPage || state.isAnimating) return;
 
   const previousPage = state.currentPage;
@@ -3245,6 +3404,11 @@ function changePageFromPaperClick(event, fallbackSide) {
 }
 
 function changePageByDirection(direction) {
+  if (isInfiniteScrollActive()) {
+    goToPage(state.currentPage + (direction === "forward" ? 1 : -1));
+    return;
+  }
+
   const isMobile = window.matchMedia("(max-width: 760px)").matches;
   const spread = getVisiblePageIndices(state.currentPage);
   const offset = direction === "forward" ? 1 : -1;
@@ -3259,6 +3423,7 @@ function changePageByDirection(direction) {
 
 function changePageFromWheel(event) {
   if (!state.activeBookId || !byId("reader-view").classList.contains("is-active")) return;
+  if (isInfiniteScrollActive()) return;
 
   const reader = byId("book-reader");
   const bounds = reader.getBoundingClientRect();
@@ -3295,15 +3460,17 @@ async function setBookmark() {
 
   const book = getBook(state.activeBookId);
   if (!book) return;
+  const pageToBookmark = state.currentPage;
+  state.suppressContinuousProgressUntil = Date.now() + 1200;
 
   await withAppBusy("Enregistrement du marque-page…", async () => {
-  book.bookmarkPage = state.currentPage;
+  book.bookmarkPage = pageToBookmark;
   book.updatedAt = new Date().toISOString();
 
   if (state.storageMode === "supabase") {
     const { error } = await state.db
       .from("books")
-      .update({ bookmark_page: state.currentPage })
+      .update({ bookmark_page: pageToBookmark })
       .eq("id", book.id);
 
     if (error) {
@@ -3315,7 +3482,21 @@ async function setBookmark() {
     saveBooks();
   }
 
-  renderReader();
+  state.currentPage = pageToBookmark;
+  if (isInfiniteScrollActive()) {
+    state.suppressContinuousProgressUntil = Date.now() + 1200;
+    byId("book-reader").querySelectorAll(".continuous-page").forEach((pageNode) => {
+      const pageIndex = Number(pageNode.dataset.pageIndex);
+      if (pageIndex === pageToBookmark) {
+        renderPage(pageNode, state.pages[pageIndex], pageIndex, book);
+        return;
+      }
+      pageNode.querySelector(".bookmark-ribbon")?.remove();
+    });
+    updateReaderProgressUI(book);
+  } else {
+    renderReader();
+  }
   renderBookGrid();
   });
 }
@@ -3426,13 +3607,15 @@ function bindEvents() {
   byId("book-reader").addEventListener("touchstart", handleTouchStart, { passive: true });
   byId("book-reader").addEventListener("touchend", handleTouchEnd, { passive: true });
   byId("bookmark-button").addEventListener("click", setBookmark);
+  byId("floating-bookmark-button").addEventListener("click", setBookmark);
   byId("resume-button").addEventListener("click", () => {
     const book = getBook(state.activeBookId);
-    if (book) goToPage(book.bookmarkPage ?? getReadingProgress(book.id) ?? 0);
+    if (book) goToPage(getResumePage(book));
   });
   byId("ambiance-toggle").addEventListener("click", toggleAmbiancePanel);
   byId("ambiance-play-toggle").addEventListener("click", toggleAmbiance);
   byId("sound-effects-toggle").addEventListener("click", toggleSoundEffects);
+  byId("infinite-scroll-toggle").addEventListener("click", toggleInfiniteScroll);
   byId("reader-settings-toggle").addEventListener("click", () => {
     byId("reader-settings").hidden = !byId("reader-settings").hidden;
   });
@@ -3491,7 +3674,10 @@ function bindEvents() {
   window.addEventListener("resize", () => {
     if (state.activeBookId) repaginateActiveBook();
     if (state.activeBookId && byId("artbook-view").classList.contains("is-active")) renderArtbook();
+    updateInfiniteScrollButton();
   });
+
+  window.addEventListener("scroll", updateContinuousReadingProgress, { passive: true });
 
   window.addEventListener("beforeunload", (event) => {
     if (!state.editorDirty) return;
