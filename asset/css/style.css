@@ -114,6 +114,26 @@ body.is-busy .app-shell {
   font-size: 0.86rem;
 }
 
+.reader-toast {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 80;
+  max-width: min(320px, calc(100vw - 36px));
+  border: 1px solid rgba(53, 68, 45, 0.26);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #fff;
+  background: rgba(53, 68, 45, 0.94);
+  box-shadow: 0 18px 42px rgba(43, 34, 24, 0.24);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.reader-toast[hidden] {
+  display: none;
+}
+
 @keyframes busy-spin {
   to {
     transform: rotate(360deg);
@@ -555,12 +575,27 @@ textarea:focus {
   font-weight: 700;
 }
 
+.search-result-count {
+  margin: 0 0 4px;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .search-result-excerpt {
   display: block;
   margin-top: 4px;
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.35;
+}
+
+.search-result-excerpt mark {
+  border-radius: 4px;
+  padding: 0 2px;
+  color: var(--ink);
+  background: rgba(95, 111, 82, 0.18);
+  font-weight: 800;
 }
 
 .importer-header {

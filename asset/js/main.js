@@ -49,6 +49,7 @@ const state = {
     theme: "paper",
     soundEffects: true,
     infiniteScroll: false,
+    sidebarCollapsed: false,
     ambianceTrack: "ambiance",
   },
   touchStartX: 0,
@@ -73,6 +74,7 @@ const state = {
 let chapterSourceRichHtml = "";
 let editorMaintenanceTimer = 0;
 let chapterSaveFeedbackTimer = 0;
+let readerToastTimer = 0;
 
 function readJsonStorage(key, fallback) {
   try {
@@ -93,6 +95,18 @@ function setReadingProgress(bookId, page) {
   localStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(progress));
 }
 
+function showReaderToast(message) {
+  const toast = byId("reader-toast");
+  if (!toast) return;
+
+  window.clearTimeout(readerToastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  readerToastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+  }, 1800);
+}
+
 function getResumePage(book) {
   const bookmarkPage = Number.isInteger(book?.bookmarkPage) ? book.bookmarkPage : null;
   return bookmarkPage ?? getReadingProgress(book.id) ?? 0;
@@ -104,6 +118,7 @@ function loadReaderPrefs() {
     ...readJsonStorage(READER_PREFS_KEY, {}),
   };
   state.readerPrefs.infiniteScroll = Boolean(state.readerPrefs.infiniteScroll);
+  state.readerPrefs.sidebarCollapsed = Boolean(state.readerPrefs.sidebarCollapsed);
   state.readerPrefs.ambianceTrack = getAmbianceTrack(state.readerPrefs.ambianceTrack).id;
 }
 
@@ -2460,6 +2475,7 @@ function renderReader() {
 
   byId("reader-layout").hidden = false;
   byId("reader-empty").hidden = true;
+  syncReaderSidebarState();
   setReadingProgress(book.id, state.currentPage);
   byId("reader-book-title").textContent = book.title;
   byId("reader-book-meta").textContent = `${book.author || "Auteur inconnu"} · ${state.pages.length} pages`;
@@ -2520,7 +2536,18 @@ function toggleReaderSidebar() {
   const button = byId("reader-sidebar-toggle");
   if (!layout || !button) return;
 
-  const isCollapsed = layout.classList.toggle("is-sidebar-collapsed");
+  state.readerPrefs.sidebarCollapsed = !state.readerPrefs.sidebarCollapsed;
+  saveReaderPrefs();
+  syncReaderSidebarState();
+}
+
+function syncReaderSidebarState() {
+  const layout = byId("reader-layout");
+  const button = byId("reader-sidebar-toggle");
+  if (!layout || !button) return;
+
+  const isCollapsed = Boolean(state.readerPrefs.sidebarCollapsed);
+  layout.classList.toggle("is-sidebar-collapsed", isCollapsed);
   button.textContent = isCollapsed ? "Afficher le panneau" : "Masquer le panneau";
   button.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
 }
@@ -2602,10 +2629,34 @@ function findPageForParagraph(chapterId, paragraphText) {
   return Math.max(0, pageIndex);
 }
 
+function highlightSearchMatch(text, query) {
+  if (!query) return escapeHtml(text);
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  let cursor = 0;
+  let html = "";
+
+  while (cursor < text.length) {
+    const index = lowerText.indexOf(lowerQuery, cursor);
+    if (index < 0) {
+      html += escapeHtml(text.slice(cursor));
+      break;
+    }
+
+    html += escapeHtml(text.slice(cursor, index));
+    html += `<mark>${escapeHtml(text.slice(index, index + query.length))}</mark>`;
+    cursor = index + query.length;
+  }
+
+  return html;
+}
+
 function renderBookSearchResults() {
   const book = getBook(state.activeBookId);
   const container = byId("book-search-results");
-  const query = byId("book-search").value.trim().toLowerCase();
+  const query = byId("book-search").value.trim();
+  const normalizedQuery = query.toLowerCase();
   container.innerHTML = "";
 
   if (!book || query.length < 2) return;
@@ -2614,7 +2665,7 @@ function renderBookSearchResults() {
   book.chapters.forEach((chapter) => {
     paragraphsFromContent(chapter.content).forEach((paragraph) => {
       const plainParagraph = paragraphPlainText(paragraph);
-      const index = plainParagraph.toLowerCase().indexOf(query);
+      const index = plainParagraph.toLowerCase().indexOf(normalizedQuery);
       if (index < 0 || results.length >= 8) return;
       results.push({
         chapter,
@@ -2629,12 +2680,17 @@ function renderBookSearchResults() {
     return;
   }
 
+  const count = document.createElement("p");
+  count.className = "search-result-count";
+  count.textContent = `${results.length} résultat${results.length > 1 ? "s" : ""}`;
+  container.appendChild(count);
+
   results.forEach((result) => {
     const button = document.createElement("button");
     button.type = "button";
     button.innerHTML = `
       <span class="search-result-title">${escapeHtml(result.chapter.title)}</span>
-      <span class="search-result-excerpt">${escapeHtml(result.excerpt)}</span>
+      <span class="search-result-excerpt">${highlightSearchMatch(result.excerpt, query)}</span>
     `;
     button.addEventListener("click", () => goToPage(findPageForParagraph(result.chapter.id, result.paragraph)));
     container.appendChild(button);
@@ -3094,7 +3150,7 @@ function updateInfiniteScrollButton() {
   const isAvailable = isInfiniteScrollAvailable();
   const isActive = isInfiniteScrollActive();
   button.hidden = !isAvailable;
-  button.textContent = isActive ? "Pages" : "Scroll infini";
+  button.textContent = isActive ? "Mode pages" : "Scroll infini";
   button.setAttribute("aria-pressed", isActive ? "true" : "false");
   button.setAttribute("aria-label", isActive ? "Revenir au mode pages" : "Activer le scroll infini");
   button.dataset.tooltip = isActive ? "Mode pages" : "Scroll infini";
@@ -3556,6 +3612,7 @@ async function setBookmark() {
     renderReader();
   }
   renderBookGrid();
+  showReaderToast(`Page ${pageToBookmark + 1} marquée`);
   });
 }
 
