@@ -261,6 +261,7 @@
                     <span id="sidebar-page-indicator">Page 1 / 1</span>
                     <progress id="sidebar-progress-bar" value="0" max="100"></progress>
                   </div>
+                  <span class="reader-bookmark-chip" id="reader-bookmark-chip" hidden>Marque-page posé</span>
                 </div>
               </div>
 
@@ -270,6 +271,7 @@
                 <button class="reader-tool audio-toggle" id="ambiance-toggle" type="button" aria-expanded="false" aria-pressed="false" data-tooltip="Réglages audio">Audio</button>
                 <button class="reader-tool infinite-scroll-toggle" id="infinite-scroll-toggle" type="button" aria-pressed="false" data-tooltip="Changer le mode de lecture">Scroll infini</button>
                 <button class="reader-tool" id="reader-settings-toggle" type="button" aria-label="Réglages de lecture" data-tooltip="Réglages de lecture">Texte</button>
+                <button class="reader-tool" id="reader-night-toggle" type="button" aria-pressed="false" data-tooltip="Mode nuit">Nuit</button>
                 <button class="reader-tool" id="reader-focus-toggle" type="button" data-tooltip="Mode plein écran">Écran</button>
               </div>
 
@@ -305,11 +307,16 @@
                   <input id="reader-line-height" type="range" min="145" max="180" value="158" />
                 </label>
                 <label>
+                  Largeur du livre
+                  <input id="reader-page-width" type="range" min="900" max="1240" step="20" value="1020" />
+                </label>
+                <label>
                   Thème
                   <select id="reader-theme">
                     <option value="paper">Papier</option>
                     <option value="light">Clair</option>
                     <option value="sepia">Sépia</option>
+                    <option value="night">Nuit</option>
                   </select>
                 </label>
               </div>
@@ -337,6 +344,7 @@
               <div class="reader-controls">
                 <button id="prev-page" type="button" aria-label="Page précédente">‹</button>
                 <div class="reading-progress">
+                  <span class="chapter-indicator" id="chapter-indicator">Chapitre</span>
                   <span id="page-indicator">Page 1 / 1</span>
                   <progress id="progress-bar" value="0" max="100"></progress>
                 </div>
@@ -347,6 +355,9 @@
                 <article class="paper-page left-page" id="left-page"></article>
                 <article class="paper-page right-page" id="right-page"></article>
               </div>
+              <button class="page-hotspot page-hotspot-left" id="page-hotspot-left" type="button" aria-label="Page précédente">‹</button>
+              <button class="page-hotspot page-hotspot-right" id="page-hotspot-right" type="button" aria-label="Page suivante">›</button>
+              <button class="scroll-top-button" id="scroll-top-button" type="button" aria-label="Retour en haut du livre">↑</button>
               <button class="floating-bookmark-button" id="floating-bookmark-button" type="button">Marquer cette page</button>
               <button class="focus-exit" id="focus-exit" type="button">Quitter</button>
             </section>
@@ -417,6 +428,7 @@
         <span id="app-busy-message">Merci de patienter.</span>
       </div>
     </div>
+    <div class="reader-toast" id="reader-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
     <template id="book-card-template">
       <article class="book-card">
