@@ -55,6 +55,7 @@ const state = {
     infiniteScroll: false,
     sidebarCollapsed: false,
     ambianceTrack: "ambiance",
+    autoAmbiance: true,
   },
   touchStartX: 0,
   touchStartY: 0,
@@ -72,6 +73,7 @@ const state = {
   ambianceAudio: null,
   ambianceFadeFrame: 0,
   activeAmbianceTrackId: null,
+  effectiveAmbianceTrackId: null,
   isAmbianceEnabled: false,
   storageMode: "local",
   hasArtbookTable: true,
@@ -158,6 +160,7 @@ function loadReaderPrefs() {
   };
   state.readerPrefs.infiniteScroll = Boolean(state.readerPrefs.infiniteScroll);
   state.readerPrefs.sidebarCollapsed = Boolean(state.readerPrefs.sidebarCollapsed);
+  state.readerPrefs.autoAmbiance = state.readerPrefs.autoAmbiance !== false;
   state.readerPrefs.pageWidth = Number(state.readerPrefs.pageWidth) || 1020;
   state.readerPrefs.ambianceTrack = state.readerPrefs.ambianceTrack || DEFAULT_AMBIANCE_TRACKS[0].id;
 }
@@ -172,6 +175,8 @@ function syncReaderPrefsControls() {
   byId("reader-page-width").value = state.readerPrefs.pageWidth;
   byId("reader-theme").value = state.readerPrefs.theme;
   renderAmbianceTrackOptions();
+  renderChapterAmbianceOptions();
+  updateAutoAmbianceControl();
   updateSoundEffectsButton();
   updateInfiniteScrollButton();
   updateNightModeButton();
@@ -191,6 +196,9 @@ function applyReaderPrefs() {
   [view, artbookView].filter(Boolean).forEach((surfaceView) => {
     surfaceView.dataset.theme = state.readerPrefs.theme;
   });
+  if (!state.effectiveAmbianceTrackId) {
+    state.effectiveAmbianceTrackId = state.readerPrefs.ambianceTrack;
+  }
   document.body.classList.toggle("reader-night-theme", state.readerPrefs.theme === "night");
   updateNightModeButton();
 }
@@ -291,6 +299,7 @@ function mapBookRow(row, chapters, artbookItems = []) {
         title: chapter.title,
         content: chapter.content || "",
         illustration: chapter.illustration || "",
+        ambianceTrackId: chapter.ambiance_track_id || "",
       })),
     artbookItems: sortPositionRows(artbookItems.filter((item) => item.book_id === row.id))
       .map((item) => ({
@@ -1066,6 +1075,7 @@ function cloneChapter(chapter, fallbackIndex = 0) {
     title: (chapter.title || `Chapitre ${fallbackIndex + 1}`).trim(),
     content: chapter.content || "",
     illustration: chapter.illustration || "",
+    ambianceTrackId: chapter.ambianceTrackId || chapter.ambiance_track_id || "",
   };
 }
 
@@ -1132,7 +1142,10 @@ function setChapterIllustrationPreview(value) {
 
 function chapterMetaText(chapter) {
   const words = chapterWordCount(chapter);
-  const suffix = chapter.illustration ? " · illustration" : "";
+  const extras = [];
+  if (chapter.illustration) extras.push("illustration");
+  if (chapter.ambianceTrackId) extras.push(getAmbianceTrackLabel(chapter.ambianceTrackId));
+  const suffix = extras.length ? ` - ${extras.join(" - ")}` : "";
   return `${words} mot${words > 1 ? "s" : ""}${suffix}`;
 }
 
@@ -1148,6 +1161,7 @@ function renderChapterControl() {
   const count = byId("chapter-count");
   const titleInput = byId("chapter-title");
   const contentInput = byId("chapter-content");
+  const ambianceSelect = byId("chapter-ambiance-track");
   const illustrationFileInput = byId("chapter-illustration-file");
   const removeIllustrationButton = byId("remove-chapter-illustration");
   const deleteButton = byId("delete-chapter");
@@ -1179,11 +1193,13 @@ function renderChapterControl() {
 
   titleInput.value = chapter?.title || "";
   contentInput.innerHTML = normalizeRichContent(chapter?.content || "");
+  renderChapterAmbianceOptions();
   if (illustrationFileInput) illustrationFileInput.value = "";
   setChapterIllustrationPreview(chapter?.illustration || "");
   titleInput.disabled = !chapter;
   contentInput.contentEditable = chapter ? "true" : "false";
   contentInput.setAttribute("aria-disabled", chapter ? "false" : "true");
+  if (ambianceSelect) ambianceSelect.disabled = !chapter;
   if (illustrationFileInput) illustrationFileInput.disabled = !chapter;
   if (removeIllustrationButton) removeIllustrationButton.disabled = !chapter || !chapter.illustration;
   deleteButton.disabled = !chapter;
@@ -1197,6 +1213,7 @@ function addEmptyChapter() {
     title: `Chapitre ${state.editorChapters.length + 1}`,
     content: "",
     illustration: "",
+    ambianceTrackId: "",
   };
   state.editorChapters.push(chapter);
   state.editingChapterId = chapter.id;
@@ -1213,6 +1230,7 @@ function saveCurrentChapter() {
 
   const title = byId("chapter-title").value.trim();
   const content = readRichEditorContent();
+  const ambianceTrackId = byId("chapter-ambiance-track").value;
 
   if (!title) {
     alert("Ajoute un titre pour ce chapitre.");
@@ -1223,6 +1241,7 @@ function saveCurrentChapter() {
     ...state.editorChapters[index],
     title,
     content,
+    ambianceTrackId,
   };
   syncChapterSource();
   renderChapterControl();
@@ -1240,6 +1259,7 @@ function updateCurrentChapterDraft() {
     ...state.editorChapters[index],
     title: byId("chapter-title").value.trim(),
     content: readRichEditorContent(),
+    ambianceTrackId: byId("chapter-ambiance-track").value,
   };
   scheduleEditorMaintenance();
   markEditorDirty("Chapitre modifié, livre non enregistré.");
@@ -2024,6 +2044,7 @@ async function handleChapterIllustrationFileChange(event) {
         ...state.editorChapters[index],
         title: byId("chapter-title").value.trim(),
         content: readRichEditorContent(),
+        ambianceTrackId: byId("chapter-ambiance-track").value,
         illustration,
       };
       setChapterIllustrationPreview(illustration);
@@ -2047,6 +2068,7 @@ function removeChapterIllustration() {
     ...state.editorChapters[index],
     title: byId("chapter-title").value.trim(),
     content: readRichEditorContent(),
+    ambianceTrackId: byId("chapter-ambiance-track").value,
     illustration: "",
   };
   setChapterIllustrationPreview("");
@@ -2271,6 +2293,7 @@ function toChapterRows(bookId, chapters) {
     title: chapter.title,
     content: chapter.content,
     illustration: chapter.illustration || "",
+    ambiance_track_id: chapter.ambianceTrackId || "",
   }));
 }
 
@@ -2821,6 +2844,7 @@ function updateContinuousReadingProgress() {
   updateReaderProgressUI(book, { updateIndicator: false });
   renderToc(book);
   renderBookSearchResults();
+  syncChapterAmbiance();
 }
 
 function renderReader() {
@@ -2858,6 +2882,7 @@ function renderReader() {
     byId("page-hotspot-right").disabled = state.currentPage >= state.pages.length - 1;
     renderToc(book);
     renderBookSearchResults();
+    syncChapterAmbiance();
     window.requestAnimationFrame(() => scrollToContinuousPage(state.currentPage, "auto"));
     return;
   }
@@ -2892,6 +2917,7 @@ function renderReader() {
 
   renderToc(book);
   renderBookSearchResults();
+  syncChapterAmbiance();
 }
 
 function toggleReaderSidebar() {
@@ -3613,7 +3639,7 @@ function toggleInfiniteScroll() {
   renderReader();
 }
 
-function getAmbianceTrack(trackId = state.readerPrefs.ambianceTrack) {
+function getAmbianceTrack(trackId = state.effectiveAmbianceTrackId || state.readerPrefs.ambianceTrack) {
   const tracks = getAllAmbianceTracks();
   return tracks.find((track) => track.id === trackId) || tracks[0] || DEFAULT_AMBIANCE_TRACKS[0];
 }
@@ -3622,12 +3648,27 @@ function renderAmbianceTrackOptions() {
   const select = byId("ambiance-track");
   if (!select) return;
 
-  const selectedTrack = getAmbianceTrack();
+  const selectedTrack = getAmbianceTrack(state.readerPrefs.ambianceTrack);
   select.innerHTML = getAllAmbianceTracks()
     .map((track) => `<option value="${escapeHtml(track.id)}">${escapeHtml(track.label)}</option>`)
     .join("");
   select.value = selectedTrack.id;
   renderAmbianceTrackList();
+  renderChapterAmbianceOptions();
+}
+
+function renderChapterAmbianceOptions() {
+  const select = byId("chapter-ambiance-track");
+  if (!select) return;
+
+  const currentValue = getEditingChapter()?.ambianceTrackId || "";
+  const options = [
+    '<option value="">Aucune</option>',
+    '<option value="__inherit">Garder l’ambiance précédente</option>',
+    ...getAllAmbianceTracks().map((track) => `<option value="${escapeHtml(track.id)}">${escapeHtml(track.label)}</option>`),
+  ];
+  select.innerHTML = options.join("");
+  select.value = currentValue;
 }
 
 function renderAmbianceTrackList() {
@@ -3650,6 +3691,12 @@ function renderAmbianceTrackList() {
     row.querySelector("button").addEventListener("click", () => deleteAmbianceTrack(track.id));
     list.appendChild(row);
   });
+}
+
+function getAmbianceTrackLabel(trackId) {
+  if (!trackId) return "";
+  if (trackId === "__inherit") return "ambiance précédente";
+  return getAmbianceTrack(trackId)?.label || "";
 }
 
 function readAmbianceTrackDraft() {
@@ -3749,6 +3796,7 @@ async function addAmbianceTrack() {
     }
 
     state.readerPrefs.ambianceTrack = state.ambianceTracks[state.ambianceTracks.length - 1].id;
+    state.effectiveAmbianceTrackId = state.readerPrefs.ambianceTrack;
     saveReaderPrefs();
     clearAmbianceTrackDraft();
     renderAmbianceTrackOptions();
@@ -3778,6 +3826,7 @@ async function deleteAmbianceTrack(trackId) {
   if (state.storageMode !== "supabase") saveLocalAmbianceTracks();
   if (state.readerPrefs.ambianceTrack === trackId) {
     state.readerPrefs.ambianceTrack = DEFAULT_AMBIANCE_TRACKS[0].id;
+    state.effectiveAmbianceTrackId = state.readerPrefs.ambianceTrack;
     saveReaderPrefs();
   }
   resetAmbianceAudio();
@@ -3795,6 +3844,12 @@ function resetAmbianceAudio() {
 
   state.ambianceAudio = null;
   state.activeAmbianceTrackId = null;
+}
+
+function setEffectiveAmbianceTrack(trackId) {
+  const track = getAmbianceTrack(trackId);
+  state.effectiveAmbianceTrackId = track.id;
+  return track;
 }
 
 function getAmbianceAudio() {
@@ -3839,6 +3894,38 @@ function updateAmbiancePlayButton() {
   button.textContent = isMuted ? "Sons coupés" : (state.isAmbianceEnabled ? "Couper" : "Lancer");
   button.setAttribute("aria-pressed", state.isAmbianceEnabled ? "true" : "false");
   button.setAttribute("aria-label", isMuted ? "Réactive les sons du site pour lancer l'ambiance" : (state.isAmbianceEnabled ? `Couper l'ambiance ${track.label}` : `Lancer l'ambiance ${track.label}`));
+}
+
+function updateAutoAmbianceControl() {
+  const control = byId("auto-ambiance-toggle");
+  if (!control) return;
+  control.checked = state.readerPrefs.autoAmbiance !== false;
+}
+
+function toggleAutoAmbiance(event) {
+  state.readerPrefs.autoAmbiance = event.target.checked;
+  saveReaderPrefs();
+  updateAutoAmbianceControl();
+  syncChapterAmbiance();
+}
+
+function getCurrentReaderChapter() {
+  const book = getBook(state.activeBookId);
+  const chapterId = state.pages[state.currentPage]?.chapterId;
+  return book?.chapters.find((chapter) => chapter.id === chapterId) || null;
+}
+
+function resolveChapterAmbianceTrackId(chapter) {
+  if (!chapter || !state.readerPrefs.autoAmbiance) return state.readerPrefs.ambianceTrack;
+  if (chapter.ambianceTrackId === "__inherit") return state.effectiveAmbianceTrackId || state.readerPrefs.ambianceTrack;
+  return chapter.ambianceTrackId || state.readerPrefs.ambianceTrack;
+}
+
+function syncChapterAmbiance() {
+  if (!state.readerPrefs.soundEffects || !state.readerPrefs.autoAmbiance) return;
+  const trackId = resolveChapterAmbianceTrackId(getCurrentReaderChapter());
+  if (!trackId || trackId === (state.effectiveAmbianceTrackId || state.readerPrefs.ambianceTrack)) return;
+  updateAmbianceTrack(trackId, { auto: true });
 }
 
 function toggleAmbiancePanel() {
@@ -3948,11 +4035,13 @@ function stopAmbiance(onComplete = null) {
   }, audio);
 }
 
-function updateAmbianceTrack(trackId) {
+function updateAmbianceTrack(trackId, options = {}) {
   const previousTrack = getAmbianceTrack();
-  const nextTrack = getAmbianceTrack(trackId);
-  state.readerPrefs.ambianceTrack = nextTrack.id;
-  saveReaderPrefs();
+  const nextTrack = setEffectiveAmbianceTrack(trackId);
+  if (!options.auto) {
+    state.readerPrefs.ambianceTrack = nextTrack.id;
+    saveReaderPrefs();
+  }
   renderAmbianceTrackOptions();
   updateAmbianceButton();
   updateAmbiancePlayButton();
@@ -4346,6 +4435,7 @@ function bindEvents() {
   byId("ambiance-toggle").addEventListener("click", toggleAmbiancePanel);
   byId("ambiance-play-toggle").addEventListener("click", toggleAmbiance);
   byId("sound-effects-toggle").addEventListener("click", toggleSoundEffects);
+  byId("auto-ambiance-toggle").addEventListener("change", toggleAutoAmbiance);
   byId("add-ambiance-track").addEventListener("click", addAmbianceTrack);
   byId("infinite-scroll-toggle").addEventListener("click", toggleInfiniteScroll);
   byId("reader-settings-toggle").addEventListener("click", () => {
@@ -4384,6 +4474,7 @@ function bindEvents() {
   byId("reader-page-width").addEventListener("input", (event) => updateReaderPreference("pageWidth", Number(event.target.value)));
   byId("reader-theme").addEventListener("change", (event) => updateReaderPreference("theme", event.target.value));
   byId("ambiance-track").addEventListener("change", (event) => updateAmbianceTrack(event.target.value));
+  byId("chapter-ambiance-track").addEventListener("change", updateCurrentChapterDraft);
   byId("book-search").addEventListener("input", renderBookSearchResults);
   byId("page-jump").addEventListener("change", (event) => {
     goToPage(Number(event.target.value) - 1);
