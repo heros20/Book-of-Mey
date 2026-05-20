@@ -230,6 +230,9 @@ body.is-busy .app-shell {
   right: max(18px, env(safe-area-inset-right));
   bottom: max(18px, env(safe-area-inset-bottom));
   z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   max-width: min(320px, calc(100vw - 36px));
   border: 1px solid rgba(53, 68, 45, 0.26);
   border-radius: 8px;
@@ -238,6 +241,16 @@ body.is-busy .app-shell {
   background: rgba(53, 68, 45, 0.94);
   box-shadow: 0 18px 42px rgba(43, 34, 24, 0.24);
   font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.reader-toast button {
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
   font-weight: 800;
 }
 
@@ -441,9 +454,41 @@ h1 {
 
 .library-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 240px auto;
   gap: 14px;
   margin-bottom: 18px;
+}
+
+.backup-actions {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.import-backup-button {
+  display: inline-grid;
+  min-height: 42px;
+  cursor: pointer;
+}
+
+.import-backup-button span {
+  display: inline-grid;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 16px;
+  color: var(--ink);
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.import-backup-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 label {
@@ -487,6 +532,14 @@ select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(95, 111, 82, 0.16);
+}
+
+button:focus-visible,
+a:focus-visible,
+.rich-text-editor:focus-visible,
+.import-backup-button:focus-within {
+  outline: 3px solid rgba(95, 111, 82, 0.28);
+  outline-offset: 3px;
 }
 
 .book-grid {
@@ -691,6 +744,18 @@ textarea:focus {
   color: var(--accent-strong);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.search-result-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.search-result-controls button,
+.reader-search-results button.is-active {
+  border-color: rgba(95, 111, 82, 0.34);
+  background: rgba(95, 111, 82, 0.12);
 }
 
 .search-result-excerpt {
@@ -1308,6 +1373,63 @@ textarea:focus {
 
 .ambiance-play-toggle {
   width: 100%;
+}
+
+.ambiance-manager {
+  display: grid;
+  gap: 10px;
+}
+
+.editor-ambiance-manager {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.editor-ambiance-manager summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.editor-ambiance-manager[open] summary {
+  margin-bottom: 10px;
+}
+
+.ambiance-track-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ambiance-track-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 253, 248, 0.66);
+}
+
+.ambiance-track-item span {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ambiance-track-item button {
+  min-height: 32px;
+  border: 1px solid rgba(156, 61, 53, 0.22);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--danger);
+  background: rgba(156, 61, 53, 0.08);
+  font-weight: 800;
 }
 
 .current-book {
