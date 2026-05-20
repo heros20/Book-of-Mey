@@ -2,14 +2,17 @@ const STORAGE_KEY = "book-of-mey-library";
 const ACTIVE_BOOK_KEY = "book-of-mey-active-book";
 const READING_PROGRESS_KEY = "book-of-mey-reading-progress";
 const READER_PREFS_KEY = "book-of-mey-reader-prefs";
+const EDITOR_DRAFT_KEY = "book-of-mey-editor-draft";
+const CUSTOM_AMBIANCE_TRACKS_KEY = "book-of-mey-custom-ambiance-tracks";
 const COVER_BUCKET = "covers";
+const AMBIANCE_BUCKET = "ambiance-sounds";
 const PAGE_FLIP_SOUND = "asset/sound/page-flip.mp3";
 const AMBIANCE_VOLUME = 0.35;
 const AMBIANCE_FADE_MS = 1400;
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
 
-// Ajoute ici une entrée par fichier d’ambiance placé dans asset/sound/.
-const AMBIANCE_TRACKS = [
+// Ajoute ici une entrée par fichier d'ambiance placé dans asset/sound/.
+const DEFAULT_AMBIANCE_TRACKS = [
   {
     id: "ambiance",
     label: "Ambiance douce",
@@ -62,6 +65,9 @@ const state = {
   busyDepth: 0,
   lastWheelTurnAt: 0,
   suppressContinuousProgressUntil: 0,
+  readerSearchResults: [],
+  readerSearchIndex: -1,
+  readerSearchQuery: "",
   pageFlipAudio: null,
   ambianceAudio: null,
   ambianceFadeFrame: 0,
@@ -69,13 +75,17 @@ const state = {
   isAmbianceEnabled: false,
   storageMode: "local",
   hasArtbookTable: true,
+  hasAmbianceTracksTable: true,
   db: null,
+  ambianceTracks: [],
 };
 
 let chapterSourceRichHtml = "";
 let editorMaintenanceTimer = 0;
 let chapterSaveFeedbackTimer = 0;
 let readerToastTimer = 0;
+let editorDraftTimer = 0;
+let isFillingEditor = false;
 
 function readJsonStorage(key, fallback) {
   try {
@@ -108,6 +118,34 @@ function showReaderToast(message) {
   }, 1800);
 }
 
+function showActionToast(message, actionLabel, onAction, duration = 6500) {
+  const toast = byId("reader-toast");
+  if (!toast) return;
+
+  window.clearTimeout(readerToastTimer);
+  toast.innerHTML = "";
+  const text = document.createElement("span");
+  text.textContent = message;
+  toast.appendChild(text);
+
+  if (actionLabel && onAction) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = actionLabel;
+    button.addEventListener("click", () => {
+      window.clearTimeout(readerToastTimer);
+      toast.hidden = true;
+      onAction();
+    }, { once: true });
+    toast.appendChild(button);
+  }
+
+  toast.hidden = false;
+  readerToastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+  }, duration);
+}
+
 function getResumePage(book) {
   const bookmarkPage = Number.isInteger(book?.bookmarkPage) ? book.bookmarkPage : null;
   return bookmarkPage ?? getReadingProgress(book.id) ?? 0;
@@ -121,7 +159,7 @@ function loadReaderPrefs() {
   state.readerPrefs.infiniteScroll = Boolean(state.readerPrefs.infiniteScroll);
   state.readerPrefs.sidebarCollapsed = Boolean(state.readerPrefs.sidebarCollapsed);
   state.readerPrefs.pageWidth = Number(state.readerPrefs.pageWidth) || 1020;
-  state.readerPrefs.ambianceTrack = getAmbianceTrack(state.readerPrefs.ambianceTrack).id;
+  state.readerPrefs.ambianceTrack = state.readerPrefs.ambianceTrack || DEFAULT_AMBIANCE_TRACKS[0].id;
 }
 
 function saveReaderPrefs() {
@@ -161,19 +199,19 @@ const sampleText = `Prologue
 
 Je ne me souviens pas exactement du moment où tout a commencé. Il reste seulement des images, des silences, et cette impression que la route avait été tracée avant même que je comprenne où poser les pieds.
 
-La nuit était tombée quand on m’a annoncé ton départ. Personne n’avait l’air inquiet. Moi, je comptais les heures.
+La nuit était tombée quand on m'a annoncé ton départ. Personne n'avait l'air inquiet. Moi, je comptais les heures.
 
 Chapitre 1 - Le contrat
 
-La journée s’annonçait longue. Deux missions, un détour chez Ignis, et cette sensation désagréable qu’une pièce du décor avait changé pendant mon sommeil.
+La journée s'annonçait longue. Deux missions, un détour chez Ignis, et cette sensation désagréable qu'une pièce du décor avait changé pendant mon sommeil.
 
-Je suis parti vers la vieille ville avant l’aube. Les rues étaient encore humides, presque vides, et ma moto faisait trop de bruit dans le silence.
+Je suis parti vers la vieille ville avant l'aube. Les rues étaient encore humides, presque vides, et ma moto faisait trop de bruit dans le silence.
 
 Chapitre 2 - Le retour
 
-Quand je suis rentré, les lumières de la maison étaient allumées. Ce détail aurait dû me rassurer. Au lieu de ça, il m’a glacé.
+Quand je suis rentré, les lumières de la maison étaient allumées. Ce détail aurait dû me rassurer. Au lieu de ça, il m'a glacé.
 
-Il y avait des voix dans le grand salon, des voix basses, trop contrôlées. J’ai compris avant même d’ouvrir la porte que rien ne serait simple.`;
+Il y avait des voix dans le grand salon, des voix basses, trop contrôlées. J'ai compris avant même d'ouvrir la porte que rien ne serait simple.`;
 
 function createSeedBook() {
   const chapters = parseChapters(sampleText);
@@ -354,6 +392,127 @@ function saveBooks() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.books));
 }
 
+function normalizeAmbianceTrack(track = {}, fallbackIndex = 0) {
+  return {
+    id: track.id || `custom-${crypto.randomUUID()}`,
+    label: String(track.label || `Ambiance ${fallbackIndex + 1}`).trim(),
+    src: String(track.src || "").trim(),
+    volume: Number.isFinite(Number(track.volume)) ? Number(track.volume) : AMBIANCE_VOLUME,
+    custom: track.custom !== false,
+  };
+}
+
+function getAllAmbianceTracks() {
+  return [...DEFAULT_AMBIANCE_TRACKS, ...state.ambianceTracks].filter((track) => track.src);
+}
+
+function saveLocalAmbianceTracks() {
+  localStorage.setItem(CUSTOM_AMBIANCE_TRACKS_KEY, JSON.stringify(state.ambianceTracks));
+}
+
+function loadLocalAmbianceTracks() {
+  state.ambianceTracks = readJsonStorage(CUSTOM_AMBIANCE_TRACKS_KEY, [])
+    .map(normalizeAmbianceTrack)
+    .filter((track) => track.label && track.src);
+}
+
+async function loadAmbianceTracksFromDatabase() {
+  const { data, error } = await state.db
+    .from("ambiance_tracks")
+    .select("*")
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    state.hasAmbianceTracksTable = false;
+    console.warn("Table ambiance_tracks indisponible. Fallback localStorage.", error);
+    loadLocalAmbianceTracks();
+    return;
+  }
+
+  state.hasAmbianceTracksTable = true;
+  state.ambianceTracks = (data || []).map((track, index) => normalizeAmbianceTrack({
+    id: track.id,
+    label: track.label,
+    src: track.src,
+    custom: true,
+  }, index));
+}
+
+async function loadAmbianceTracks() {
+  if (state.storageMode === "supabase" && state.db) {
+    await loadAmbianceTracksFromDatabase();
+    return;
+  }
+
+  loadLocalAmbianceTracks();
+}
+
+function createLibraryBackup() {
+  return {
+    app: "Book of Mey",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    books: state.books.map(normalizeBook),
+    readerPrefs: state.readerPrefs,
+  };
+}
+
+function exportLibraryBackup() {
+  const backup = createLibraryBackup();
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `book-of-mey-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  showReaderToast("Sauvegarde exportée.");
+}
+
+function normalizeImportedBooks(value) {
+  const books = Array.isArray(value) ? value : value?.books;
+  if (!Array.isArray(books)) return [];
+  return books.map(normalizeBook).filter((book) => book.title && book.chapters.length);
+}
+
+async function importLibraryBackup(event) {
+  if (state.isBusy) return;
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+
+  try {
+    const backup = JSON.parse(await file.text());
+    const importedBooks = normalizeImportedBooks(backup);
+    if (!importedBooks.length) {
+      alert("Aucun livre valide n'a été trouvé dans cette sauvegarde.");
+      return;
+    }
+
+    if (!confirm(`Importer ${importedBooks.length} livre${importedBooks.length > 1 ? "s" : ""} ? Les livres avec le même identifiant seront remplacés.`)) {
+      return;
+    }
+
+    await withAppBusy("Import de la sauvegarde…", async () => {
+      if (state.storageMode === "supabase") {
+        for (const book of importedBooks) {
+          await restoreBookToDatabase(book);
+        }
+        await loadBooksFromDatabase();
+      } else {
+        const importedIds = new Set(importedBooks.map((book) => book.id));
+        state.books = [...importedBooks, ...state.books.filter((book) => !importedIds.has(book.id))];
+        saveBooks();
+      }
+      renderBookGrid();
+      showReaderToast("Sauvegarde importée.");
+    });
+  } catch (error) {
+    console.error(error);
+    alert("Impossible d'importer cette sauvegarde JSON.");
+  }
+}
+
 function byId(id) {
   return document.getElementById(id);
 }
@@ -446,11 +605,47 @@ function setEditorStatus(message, tone = "neutral") {
 function markEditorDirty(message = "Modifications non enregistrées.") {
   state.editorDirty = true;
   setEditorStatus(message, "dirty");
+  scheduleEditorDraftSave();
 }
 
 function markEditorSaved(message = "Aucune modification en attente.") {
   state.editorDirty = false;
   setEditorStatus(message, "saved");
+  if (!isFillingEditor) clearEditorDraft();
+}
+
+function getEditorDraftPayload() {
+  if (!byId("book-title")) return null;
+  flushEditorMaintenance();
+  return {
+    savedAt: new Date().toISOString(),
+    editingBookId: state.editingBookId,
+    editingChapterId: state.editingChapterId,
+    editingArtbookItemId: state.editingArtbookItemId,
+    book: readForm(),
+  };
+}
+
+function saveEditorDraftNow() {
+  if (isFillingEditor || !state.editorDirty) return;
+  const draft = getEditorDraftPayload();
+  if (!draft) return;
+  try {
+    localStorage.setItem(EDITOR_DRAFT_KEY, JSON.stringify(draft));
+  } catch (error) {
+    console.warn("Brouillon non enregistré.", error);
+  }
+}
+
+function scheduleEditorDraftSave() {
+  if (isFillingEditor) return;
+  window.clearTimeout(editorDraftTimer);
+  editorDraftTimer = window.setTimeout(saveEditorDraftNow, 1800);
+}
+
+function clearEditorDraft() {
+  window.clearTimeout(editorDraftTimer);
+  localStorage.removeItem(EDITOR_DRAFT_KEY);
 }
 
 function showChapterSaveFeedback() {
@@ -1063,6 +1258,14 @@ function deleteCurrentChapter() {
   renderChapterControl();
   updateImportPreview();
   markEditorDirty("Chapitre supprimé, livre non enregistré.");
+  showActionToast("Chapitre supprimé.", "Annuler", () => {
+    state.editorChapters.splice(index, 0, chapter);
+    state.editingChapterId = chapter.id;
+    syncChapterSource();
+    renderChapterControl();
+    updateImportPreview();
+    markEditorDirty("Suppression du chapitre annulée.");
+  });
 }
 
 function moveCurrentChapter(direction) {
@@ -1081,11 +1284,11 @@ function moveCurrentChapter(direction) {
 function importChaptersFromSource(mode) {
   const chapters = getChaptersFromSource();
   if (!chapters.length) {
-    alert("Aucun chapitre n’a été détecté dans le texte importé.");
+    alert("Aucun chapitre n'a été détecté dans le texte importé.");
     return;
   }
 
-  if (mode === "replace" && state.editorChapters.length && !confirm("Remplacer tous les chapitres actuels par l’import ?")) {
+  if (mode === "replace" && state.editorChapters.length && !confirm("Remplacer tous les chapitres actuels par l'import ?")) {
     return;
   }
 
@@ -1262,6 +1465,12 @@ function deleteCurrentArtbookItem() {
   state.editingArtbookItemId = state.editorArtbookItems[Math.min(index, state.editorArtbookItems.length - 1)]?.id || null;
   renderArtbookControl();
   markEditorDirty("Planche supprimée, livre non enregistré.");
+  showActionToast("Planche supprimée.", "Annuler", () => {
+    state.editorArtbookItems.splice(index, 0, item);
+    state.editingArtbookItemId = item.id;
+    renderArtbookControl();
+    markEditorDirty("Suppression de la planche annulée.");
+  });
 }
 
 function moveCurrentArtbookItem(direction) {
@@ -1278,10 +1487,10 @@ function moveCurrentArtbookItem(direction) {
 function shouldStartNewParagraph(previousLine, nextLine, currentText) {
   const previous = previousLine.trim();
   const next = nextLine.trim();
-  const nextStartsDialogue = /^[-–—«"“]/.test(next);
-  const nextStartsSpeechLabel = /^[A-ZÉÈÀÂÎÔÛÇ][^.!?]{0,80}\s*:\s*[-–—]?\s*\S/.test(next);
-  const previousEndsSentence = /[.!?…»”")\]]$/.test(previous);
-  const nextStartsSentence = /^[A-ZÀ-Ý0-9«"“—-]/.test(next);
+  const nextStartsDialogue = /^[-"'\u00ab\u201c\u2013\u2014]/.test(next);
+  const nextStartsSpeechLabel = /^[^\d\s][^.!?]{0,80}\s*:\s*[-\u2013\u2014]?\s*\S/.test(next);
+  const previousEndsSentence = /[.!?\u2026\u00bb\u201d")\]]$/.test(previous);
+  const nextStartsSentence = /^[\p{L}0-9"'\u00ab\u201c\u2014-]/u.test(next);
 
   return nextStartsDialogue || nextStartsSpeechLabel || (previousEndsSentence && nextStartsSentence);
 }
@@ -1615,6 +1824,15 @@ function hasArtbook(book) {
   return getArtbookItems(book).length > 0;
 }
 
+function bookWordCount(book) {
+  return (book?.chapters || []).reduce((total, chapter) => total + chapterWordCount(chapter), 0);
+}
+
+function formatReadingTime(words) {
+  const minutes = Math.max(1, Math.round(words / 230));
+  return `${minutes} min`;
+}
+
 function syncArtbookNavButton() {
   const button = document.querySelector('[data-view-target="artbook"]');
   if (!button) return;
@@ -1646,8 +1864,10 @@ function formatBookSectionStats(book) {
 
   const chapterStats = parts.length ? parts.join(" + ") : "Aucun chapitre";
   const artbookCount = getArtbookItems(book).length;
-  if (!artbookCount) return chapterStats;
-  return `${chapterStats} - ${artbookCount} planche${artbookCount > 1 ? "s" : ""}`;
+  const words = bookWordCount(book);
+  const readingStats = words ? `${words.toLocaleString("fr-FR")} mots - ${formatReadingTime(words)}` : "";
+  const artbookStats = artbookCount ? `${artbookCount} planche${artbookCount > 1 ? "s" : ""}` : "";
+  return [chapterStats, readingStats, artbookStats].filter(Boolean).join(" - ");
 }
 
 function renderBookGrid() {
@@ -1686,18 +1906,24 @@ function renderBookGrid() {
     const node = template.content.firstElementChild.cloneNode(true);
     const cover = node.querySelector(".cover-button");
     cover.style.backgroundImage = coverBackground(book);
+    cover.setAttribute("aria-label", `Ouvrir ${book.title}`);
     cover.addEventListener("click", () => openReaderWithBusy(book.id));
     node.querySelector(".book-author").textContent = book.author || "Auteur inconnu";
     node.querySelector(".book-title").textContent = book.title;
     node.querySelector(".book-summary").textContent = book.summary || "Aucun résumé pour le moment.";
     node.querySelector(".book-stats").textContent = formatBookSectionStats(book);
-    node.querySelector(".read-book").addEventListener("click", () => openReaderWithBusy(book.id));
+    const readButton = node.querySelector(".read-book");
+    readButton.setAttribute("aria-label", `Lire ${book.title}`);
+    readButton.addEventListener("click", () => openReaderWithBusy(book.id));
     const artbookButton = node.querySelector(".open-artbook");
     artbookButton.hidden = !hasArtbook(book);
     if (hasArtbook(book)) {
+      artbookButton.setAttribute("aria-label", `Ouvrir l'artbook de ${book.title}`);
       artbookButton.addEventListener("click", () => openArtbookWithBusy(book.id));
     }
-    node.querySelector(".edit-book").addEventListener("click", () => editBook(book.id));
+    const editButton = node.querySelector(".edit-book");
+    editButton.setAttribute("aria-label", `Modifier ${book.title}`);
+    editButton.addEventListener("click", () => editBook(book.id));
     grid.appendChild(node);
   });
 
@@ -1786,12 +2012,12 @@ async function handleChapterIllustrationFileChange(event) {
   if (!file) return;
 
   if (!file.type.startsWith("image/")) {
-    alert("Choisis un fichier image pour l’illustration.");
+    alert("Choisis un fichier image pour l'illustration.");
     event.target.value = "";
     return;
   }
 
-  await withAppBusy("Préparation de l’illustration…", async () => {
+  await withAppBusy("Préparation de l'illustration…", async () => {
     try {
       const illustration = await compressChapterIllustration(file);
       state.editorChapters[index] = {
@@ -1894,7 +2120,7 @@ function updateImportPreview() {
     title: byId("book-title").value || "Aperçu",
   };
   const pages = chapters.length ? paginateBook(previewBook).length : 0;
-  byId("import-preview").textContent = `${chapters.length} chapitre${chapters.length > 1 ? "s" : ""} dans le livre · environ ${words} mots · ${pages} page${pages > 1 ? "s" : ""} estimée${pages > 1 ? "s" : ""} · ${importedChapters.length} chapitre${importedChapters.length > 1 ? "s" : ""} détecté${importedChapters.length > 1 ? "s" : ""} dans l’import`;
+  byId("import-preview").textContent = `${chapters.length} chapitre${chapters.length > 1 ? "s" : ""} dans le livre · environ ${words} mots · ${pages} page${pages > 1 ? "s" : ""} estimée${pages > 1 ? "s" : ""} · ${importedChapters.length} chapitre${importedChapters.length > 1 ? "s" : ""} détecté${importedChapters.length > 1 ? "s" : ""} dans l'import`;
   if (!importPreview) return;
 
   if (!byId("chapter-source").value.trim()) {
@@ -1922,6 +2148,16 @@ function validateChapters(chapters) {
     return "Ajoute au moins un chapitre ou un bloc de texte.";
   }
 
+  const titleCounts = new Map();
+  chapters.forEach((chapter) => {
+    const key = (chapter.title || "").trim().toLowerCase();
+    if (key) titleCounts.set(key, (titleCounts.get(key) || 0) + 1);
+  });
+  const duplicateTitle = chapters.find((chapter) => titleCounts.get((chapter.title || "").trim().toLowerCase()) > 1);
+  if (duplicateTitle) {
+    return `Le titre de chapitre "${duplicateTitle.title}" est utilisé plusieurs fois. Renomme-le pour garder un sommaire clair.`;
+  }
+
   const emptyChapter = chapters.find((chapter) => !richContentToPlainText(chapter.content).trim() && !chapter.illustration);
   if (emptyChapter) {
     return `Le chapitre « ${emptyChapter.title} » est vide. Ajoute du contenu ou supprime-le.`;
@@ -1931,11 +2167,50 @@ function validateChapters(chapters) {
 }
 
 function validateArtbookItems(items) {
+  const titleCounts = new Map();
+  items.forEach((item) => {
+    const key = (item.title || "").trim().toLowerCase();
+    if (key) titleCounts.set(key, (titleCounts.get(key) || 0) + 1);
+  });
+  const duplicateTitle = items.find((item) => item.title && titleCounts.get(item.title.trim().toLowerCase()) > 1);
+  if (duplicateTitle) {
+    return `La planche "${duplicateTitle.title}" existe déjà. Renomme-la pour faciliter la navigation.`;
+  }
+
   const incompleteItem = items.find((item) => !item.image && (item.title || item.description));
   if (incompleteItem) {
     return `La planche "${incompleteItem.title || "sans titre"}" doit avoir une image.`;
   }
 
+  return "";
+}
+
+function isValidOptionalUrl(value) {
+  if (!value || value.startsWith("data:image/") || value.startsWith("asset/")) return true;
+  try {
+    const url = new URL(value, window.location.href);
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function validateBookPayload(payload) {
+  if (!payload.title.trim()) return "Ajoute un titre au livre.";
+  if (!Number.isFinite(payload.fontSize) || payload.fontSize < 16 || payload.fontSize > 22) {
+    return "La taille du texte doit rester entre 16 et 22.";
+  }
+  if (!isValidOptionalUrl(payload.cover)) {
+    return "L'URL de couverture doit commencer par http:// ou https://.";
+  }
+  const invalidChapterImage = payload.chapters.find((chapter) => !isValidOptionalUrl(chapter.illustration));
+  if (invalidChapterImage) {
+    return `L'illustration du chapitre "${invalidChapterImage.title}" doit être une URL valide.`;
+  }
+  const invalidArtbookImage = payload.artbookItems.find((item) => !isValidOptionalUrl(item.image));
+  if (invalidArtbookImage) {
+    return `L'image de la planche "${invalidArtbookImage.title || "sans titre"}" doit être une URL valide.`;
+  }
   return "";
 }
 
@@ -1945,7 +2220,7 @@ function getBookSaveErrorMessage(error) {
     .join(" ");
 
   if (/illustration/i.test(errorText) && /(column|schema|PGRST204|cache)/i.test(errorText)) {
-    return "La base Supabase n’est pas à jour : applique la migration des illustrations, puis recharge la page.";
+    return "La base Supabase n'est pas à jour : applique la migration des illustrations, puis recharge la page.";
   }
 
   if (/artbook_items/i.test(errorText) || (/artbook/i.test(errorText) && /(relation|schema|cache|PGRST204)/i.test(errorText))) {
@@ -1953,10 +2228,10 @@ function getBookSaveErrorMessage(error) {
   }
 
   if (/bucket/i.test(errorText) && /not found/i.test(errorText)) {
-    return "Le bucket Supabase Storage « covers » n’existe pas encore : applique la migration des illustrations.";
+    return "Le bucket Supabase Storage « covers » n'existe pas encore : applique la migration des illustrations.";
   }
 
-  return "Impossible d’enregistrer le livre dans la base de données.";
+  return "Impossible d'enregistrer le livre dans la base de données.";
 }
 
 function readForm() {
@@ -2041,7 +2316,7 @@ async function uploadImageToDatabase(bookId, image, prefix) {
     const { data } = state.db.storage.from(COVER_BUCKET).getPublicUrl(path);
     return data.publicUrl || image;
   } catch (error) {
-    console.warn("Impossible d’envoyer l’image vers Supabase Storage, conservation en base64.", error);
+    console.warn("Impossible d'envoyer l'image vers Supabase Storage, conservation en base64.", error);
     return image;
   }
 }
@@ -2193,7 +2468,27 @@ async function saveBookToDatabase(payload, existingBook = null) {
   return savedBook.id;
 }
 
+async function restoreBookToDatabase(book) {
+  const payload = normalizeBook(book);
+  const bookRow = {
+    id: payload.id,
+    ...toBookRow(payload, payload.bookmarkPage || 0),
+    updated_at: payload.updatedAt || new Date().toISOString(),
+  };
+  const { error: bookError } = await state.db
+    .from("books")
+    .upsert(bookRow, { onConflict: "id" });
+
+  if (bookError) throw bookError;
+
+  const chapters = await uploadChapterIllustrationsToDatabase(payload.id, payload.chapters);
+  await saveChaptersToDatabase(payload.id, chapters, getBook(payload.id));
+  const artbookItems = await uploadArtbookImagesToDatabase(payload.id, payload.artbookItems || []);
+  await saveArtbookItemsToDatabase(payload.id, artbookItems, getBook(payload.id));
+}
+
 function fillForm(book) {
+  isFillingEditor = true;
   state.editingBookId = book?.id || null;
   switchEditorTab("book");
   byId("book-title").value = book?.title || "";
@@ -2209,6 +2504,36 @@ function fillForm(book) {
   setEditorArtbookItems(book?.artbookItems || []);
   byId("delete-book").hidden = !book;
   markEditorSaved(book ? "Livre chargé. Aucune modification en attente." : "Nouveau livre prêt.");
+  isFillingEditor = false;
+}
+
+function applyEditorDraft(draft) {
+  if (!draft?.book) return false;
+  isFillingEditor = true;
+  state.editingBookId = draft.editingBookId || null;
+  byId("book-title").value = draft.book.title || "";
+  byId("book-author").value = draft.book.author || "";
+  byId("book-summary").value = draft.book.summary || "";
+  byId("book-cover").value = draft.book.cover || "";
+  byId("book-cover-file").value = "";
+  coverUpload.dataUrl = "";
+  setCoverPreview(draft.book.cover || "");
+  byId("font-size").value = draft.book.fontSize || 18;
+  byId("page-density").value = draft.book.density || "classic";
+  setEditorChapters(draft.book.chapters || [], draft.editingChapterId || null);
+  setEditorArtbookItems(draft.book.artbookItems || [], draft.editingArtbookItemId || null);
+  byId("delete-book").hidden = !state.editingBookId;
+  isFillingEditor = false;
+  state.editorDirty = true;
+  setEditorStatus(`Brouillon restauré (${new Date(draft.savedAt).toLocaleString("fr-FR")}).`, "dirty");
+  showView("editor");
+  return true;
+}
+
+function offerEditorDraftRestore() {
+  const draft = readJsonStorage(EDITOR_DRAFT_KEY, null);
+  if (!draft?.book) return;
+  showActionToast("Un brouillon non enregistré est disponible.", "Restaurer", () => applyEditorDraft(draft), 12000);
 }
 
 async function saveForm(event) {
@@ -2225,6 +2550,12 @@ async function saveForm(event) {
   }
 
   const payload = readForm();
+
+  const bookError = validateBookPayload(payload);
+  if (bookError) {
+    alert(bookError);
+    return;
+  }
 
   const chapterError = validateChapters(payload.chapters);
   if (chapterError) {
@@ -2294,9 +2625,11 @@ async function deleteCurrentBook() {
   const book = getBook(state.editingBookId);
   if (!book || !confirm(`Supprimer « ${book.title} » ?`)) return;
 
+  const deletedBook = normalizeBook(book);
+  const deletedBookId = state.editingBookId;
   await withAppBusy("Suppression du livre…", async () => {
   if (state.storageMode === "supabase") {
-    const { error } = await state.db.from("books").delete().eq("id", state.editingBookId);
+    const { error } = await state.db.from("books").delete().eq("id", deletedBookId);
     if (error) {
       console.error(error);
       alert("Impossible de supprimer le livre dans la base de données.");
@@ -2304,11 +2637,11 @@ async function deleteCurrentBook() {
     }
     await loadBooksFromDatabase();
   } else {
-    state.books = state.books.filter((item) => item.id !== state.editingBookId);
+    state.books = state.books.filter((item) => item.id !== deletedBookId);
     saveBooks();
   }
 
-  if (state.activeBookId === state.editingBookId) {
+  if (state.activeBookId === deletedBookId) {
     state.activeBookId = state.books[0]?.id || null;
     localStorage.removeItem(ACTIVE_BOOK_KEY);
   }
@@ -2316,6 +2649,20 @@ async function deleteCurrentBook() {
   fillForm(null);
   renderBookGrid();
   showView("library");
+  showActionToast("Livre supprimé.", "Annuler", async () => {
+    await withAppBusy("Restauration du livre…", async () => {
+      if (state.storageMode === "supabase") {
+        await restoreBookToDatabase(deletedBook);
+        await loadBooksFromDatabase();
+      } else {
+        state.books.unshift(deletedBook);
+        saveBooks();
+      }
+      state.activeBookId = deletedBook.id;
+      renderBookGrid();
+      editBook(deletedBook.id);
+    });
+  });
   });
 }
 
@@ -2489,7 +2836,8 @@ function renderReader() {
   syncReaderSidebarState();
   setReadingProgress(book.id, state.currentPage);
   byId("reader-book-title").textContent = book.title;
-  byId("reader-book-meta").textContent = `${book.author || "Auteur inconnu"} · ${state.pages.length} pages`;
+  const words = bookWordCount(book);
+  byId("reader-book-meta").textContent = `${book.author || "Auteur inconnu"} - ${state.pages.length} pages - ${words.toLocaleString("fr-FR")} mots - ${formatReadingTime(words)}`;
   byId("reader-mini-cover").style.backgroundImage = coverBackground(book);
   applyReaderPrefs();
   updateInfiniteScrollButton();
@@ -2608,7 +2956,7 @@ function isDialogueParagraph(paragraph) {
   const text = paragraphPlainText(paragraph).trim();
   return (
     /^[-–—]\s+\S/.test(text) ||
-    /^["«“]\s*[-–—]?\s*\S/.test(text) ||
+    /^["«"]\s*[-–—]?\s*\S/.test(text) ||
     /^[A-ZÉÈÀÂÎÔÛÇ][^.!?]{0,80}\s*:\s*[-–—]?\s*\S/.test(text)
   );
 }
@@ -2648,6 +2996,62 @@ function findPageForParagraph(chapterId, paragraphText) {
   return Math.max(0, pageIndex);
 }
 
+function computeBookSearchResults(book, query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!book || normalizedQuery.length < 2) return [];
+
+  const results = [];
+  state.pages.forEach((page, pageIndex) => {
+    const chapter = book.chapters.find((item) => item.id === page.chapterId);
+    const paragraphs = page.paragraphs?.length ? page.paragraphs : [page.chapterTitle || ""];
+
+    for (const paragraph of paragraphs) {
+      const plainParagraph = paragraphPlainText(paragraph);
+      const lowerParagraph = plainParagraph.toLowerCase();
+      const index = lowerParagraph.indexOf(normalizedQuery);
+      if (index < 0) continue;
+
+      results.push({
+        chapter,
+        paragraph: plainParagraph,
+        excerpt: plainParagraph.slice(Math.max(0, index - 48), index + query.length + 76),
+        pageIndex,
+      });
+
+      if (results.length >= 80) {
+        return results;
+      }
+      break;
+    }
+  });
+
+  return results;
+}
+
+function goToSearchResult(index) {
+  if (!state.readerSearchResults.length) return;
+  state.readerSearchIndex = (index + state.readerSearchResults.length) % state.readerSearchResults.length;
+  const result = state.readerSearchResults[state.readerSearchIndex];
+  goToPage(result.pageIndex);
+  renderBookSearchResults();
+}
+
+function goToAdjacentSearchPage(step) {
+  const results = state.readerSearchResults;
+  if (!results.length) return;
+
+  const startIndex = state.readerSearchIndex >= 0 ? state.readerSearchIndex : 0;
+  const startPage = results[startIndex]?.pageIndex;
+
+  for (let offset = 1; offset <= results.length; offset += 1) {
+    const nextIndex = (startIndex + step * offset + results.length) % results.length;
+    if (results[nextIndex].pageIndex !== startPage || offset === results.length) {
+      goToSearchResult(nextIndex);
+      return;
+    }
+  }
+}
+
 function highlightSearchMatch(text, query) {
   if (!query) return escapeHtml(text);
 
@@ -2675,43 +3079,54 @@ function renderBookSearchResults() {
   const book = getBook(state.activeBookId);
   const container = byId("book-search-results");
   const query = byId("book-search").value.trim();
-  const normalizedQuery = query.toLowerCase();
+  const previousQuery = state.readerSearchQuery;
+  const previousIndex = state.readerSearchIndex;
   container.innerHTML = "";
+  state.readerSearchResults = [];
+  state.readerSearchIndex = -1;
+  state.readerSearchQuery = query;
 
   if (!book || query.length < 2) return;
 
-  const results = [];
-  book.chapters.forEach((chapter) => {
-    paragraphsFromContent(chapter.content).forEach((paragraph) => {
-      const plainParagraph = paragraphPlainText(paragraph);
-      const index = plainParagraph.toLowerCase().indexOf(normalizedQuery);
-      if (index < 0 || results.length >= 8) return;
-      results.push({
-        chapter,
-        paragraph: plainParagraph,
-        excerpt: plainParagraph.slice(Math.max(0, index - 48), index + query.length + 76),
-      });
-    });
-  });
+  const results = computeBookSearchResults(book, query);
+  state.readerSearchResults = results;
 
   if (!results.length) {
     container.innerHTML = '<p class="import-warning">Aucun résultat.</p>';
     return;
   }
 
+  const preservedIndex = previousQuery === query && previousIndex >= 0 && previousIndex < results.length ? previousIndex : -1;
+  const currentPageResultIndex = results.findIndex((result) => result.pageIndex === state.currentPage);
+  state.readerSearchIndex = preservedIndex >= 0 ? preservedIndex : currentPageResultIndex >= 0 ? currentPageResultIndex : 0;
+
+  const controls = document.createElement("div");
+  controls.className = "search-result-controls";
+  controls.innerHTML = `
+    <button type="button" data-search-step="-1" aria-label="Résultat précédent">Précédent</button>
+    <button type="button" data-search-step="1" aria-label="Résultat suivant">Suivant</button>
+  `;
+  controls.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => goToAdjacentSearchPage(Number(button.dataset.searchStep)));
+  });
+
   const count = document.createElement("p");
   count.className = "search-result-count";
-  count.textContent = `${results.length} résultat${results.length > 1 ? "s" : ""}`;
+  count.textContent = `${results.length} page${results.length > 1 ? "s" : ""} trouvée${results.length > 1 ? "s" : ""} - sélection ${state.readerSearchIndex + 1}`;
   container.appendChild(count);
+  container.appendChild(controls);
 
-  results.forEach((result) => {
+  const visibleStart = Math.min(Math.max(0, state.readerSearchIndex - 5), Math.max(0, results.length - 12));
+  results.slice(visibleStart, visibleStart + 12).forEach((result, offset) => {
+    const index = visibleStart + offset;
     const button = document.createElement("button");
     button.type = "button";
+    button.classList.toggle("is-active", index === state.readerSearchIndex);
     button.innerHTML = `
-      <span class="search-result-title">${escapeHtml(result.chapter.title)}</span>
+      <span class="search-result-title">${escapeHtml(result.chapter?.title || "Page")} - page ${result.pageIndex + 1}</span>
       <span class="search-result-excerpt">${highlightSearchMatch(result.excerpt, query)}</span>
     `;
-    button.addEventListener("click", () => goToPage(findPageForParagraph(result.chapter.id, result.paragraph)));
+    button.addEventListener("click", () => goToSearchResult(index));
     container.appendChild(button);
   });
 }
@@ -3199,7 +3614,8 @@ function toggleInfiniteScroll() {
 }
 
 function getAmbianceTrack(trackId = state.readerPrefs.ambianceTrack) {
-  return AMBIANCE_TRACKS.find((track) => track.id === trackId) || AMBIANCE_TRACKS[0];
+  const tracks = getAllAmbianceTracks();
+  return tracks.find((track) => track.id === trackId) || tracks[0] || DEFAULT_AMBIANCE_TRACKS[0];
 }
 
 function renderAmbianceTrackOptions() {
@@ -3207,10 +3623,166 @@ function renderAmbianceTrackOptions() {
   if (!select) return;
 
   const selectedTrack = getAmbianceTrack();
-  select.innerHTML = AMBIANCE_TRACKS
+  select.innerHTML = getAllAmbianceTracks()
     .map((track) => `<option value="${escapeHtml(track.id)}">${escapeHtml(track.label)}</option>`)
     .join("");
   select.value = selectedTrack.id;
+  renderAmbianceTrackList();
+}
+
+function renderAmbianceTrackList() {
+  const list = byId("ambiance-track-list");
+  if (!list) return;
+
+  list.innerHTML = "";
+  if (!state.ambianceTracks.length) {
+    list.innerHTML = '<p class="import-warning">Aucun son ajouté.</p>';
+    return;
+  }
+
+  state.ambianceTracks.forEach((track) => {
+    const row = document.createElement("div");
+    row.className = "ambiance-track-item";
+    row.innerHTML = `
+      <span>${escapeHtml(track.label)}</span>
+      <button type="button" data-track-id="${escapeHtml(track.id)}">Retirer</button>
+    `;
+    row.querySelector("button").addEventListener("click", () => deleteAmbianceTrack(track.id));
+    list.appendChild(row);
+  });
+}
+
+function readAmbianceTrackDraft() {
+  return {
+    label: byId("ambiance-track-label").value.trim(),
+    url: byId("ambiance-track-url").value.trim(),
+    file: byId("ambiance-track-file").files?.[0] || null,
+  };
+}
+
+function clearAmbianceTrackDraft() {
+  byId("ambiance-track-label").value = "";
+  byId("ambiance-track-url").value = "";
+  byId("ambiance-track-file").value = "";
+}
+
+function validateAmbianceTrackDraft(draft) {
+  if (!draft.label) return "Ajoute un nom pour ce son.";
+  if (!draft.file && !draft.url) return "Ajoute un fichier audio ou une URL.";
+  if (draft.file && !draft.file.type.startsWith("audio/")) return "Choisis un fichier audio.";
+  if (draft.url) {
+    try {
+      const url = new URL(draft.url, window.location.href);
+      if (!["http:", "https:"].includes(url.protocol)) return "L'URL audio doit commencer par http:// ou https://.";
+    } catch {
+      return "L'URL audio n'est pas valide.";
+    }
+  }
+  return "";
+}
+
+async function uploadAmbianceFile(file) {
+  if (!state.db?.storage) return "";
+
+  const extension = file.name.split(".").pop() || file.type.split("/")[1] || "audio";
+  const safeExtension = extension.replace(/[^a-z0-9]/gi, "").toLowerCase() || "audio";
+  const path = `${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
+  const { error } = await state.db.storage
+    .from(AMBIANCE_BUCKET)
+    .upload(path, file, { contentType: file.type || "audio/mpeg", upsert: true });
+
+  if (error) throw error;
+
+  const { data } = state.db.storage.from(AMBIANCE_BUCKET).getPublicUrl(path);
+  return data.publicUrl || "";
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addAmbianceTrack() {
+  if (state.isBusy) return;
+  const draft = readAmbianceTrackDraft();
+  const validationError = validateAmbianceTrackDraft(draft);
+  if (validationError) {
+    alert(validationError);
+    return;
+  }
+
+  await withAppBusy("Ajout du son d'ambiance…", async () => {
+    let src = draft.url;
+    if (draft.file) {
+      if (state.storageMode === "supabase" && state.hasAmbianceTracksTable) {
+        src = await uploadAmbianceFile(draft.file);
+      } else {
+        if (draft.file.size > 3_500_000) {
+          alert("En local, choisis un fichier audio de moins de 3,5 Mo ou utilise une URL. Avec Supabase, le fichier peut aller jusqu'à 20 Mo.");
+          return;
+        }
+        src = await fileToDataUrl(draft.file);
+      }
+    }
+
+    const track = normalizeAmbianceTrack({ label: draft.label, src });
+    if (state.storageMode === "supabase" && state.hasAmbianceTracksTable) {
+      const { data, error } = await state.db
+        .from("ambiance_tracks")
+        .insert({
+          label: track.label,
+          src: track.src,
+          position: state.ambianceTracks.length + 1,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      state.ambianceTracks.push(normalizeAmbianceTrack({ id: data.id, label: data.label, src: data.src }));
+    } else {
+      state.ambianceTracks.push(track);
+      saveLocalAmbianceTracks();
+    }
+
+    state.readerPrefs.ambianceTrack = state.ambianceTracks[state.ambianceTracks.length - 1].id;
+    saveReaderPrefs();
+    clearAmbianceTrackDraft();
+    renderAmbianceTrackOptions();
+    updateAmbianceButton();
+    showReaderToast("Son d'ambiance ajouté.");
+  });
+}
+
+async function deleteAmbianceTrack(trackId) {
+  const track = state.ambianceTracks.find((item) => item.id === trackId);
+  if (!track || !confirm(`Retirer "${track.label}" des ambiances ?`)) return;
+
+  if (state.isAmbianceEnabled && state.activeAmbianceTrackId === trackId) {
+    stopAmbiance();
+  }
+
+  if (state.storageMode === "supabase" && state.hasAmbianceTracksTable) {
+    const { error } = await state.db.from("ambiance_tracks").delete().eq("id", trackId);
+    if (error) {
+      console.error(error);
+      alert("Impossible de retirer ce son dans Supabase.");
+      return;
+    }
+  }
+
+  state.ambianceTracks = state.ambianceTracks.filter((item) => item.id !== trackId);
+  if (state.storageMode !== "supabase") saveLocalAmbianceTracks();
+  if (state.readerPrefs.ambianceTrack === trackId) {
+    state.readerPrefs.ambianceTrack = DEFAULT_AMBIANCE_TRACKS[0].id;
+    saveReaderPrefs();
+  }
+  resetAmbianceAudio();
+  renderAmbianceTrackOptions();
+  updateAmbianceButton();
 }
 
 function resetAmbianceAudio() {
@@ -3266,7 +3838,7 @@ function updateAmbiancePlayButton() {
   button.disabled = isMuted;
   button.textContent = isMuted ? "Sons coupés" : (state.isAmbianceEnabled ? "Couper" : "Lancer");
   button.setAttribute("aria-pressed", state.isAmbianceEnabled ? "true" : "false");
-  button.setAttribute("aria-label", isMuted ? "Réactive les sons du site pour lancer l’ambiance" : (state.isAmbianceEnabled ? `Couper l’ambiance ${track.label}` : `Lancer l’ambiance ${track.label}`));
+  button.setAttribute("aria-label", isMuted ? "Réactive les sons du site pour lancer l'ambiance" : (state.isAmbianceEnabled ? `Couper l'ambiance ${track.label}` : `Lancer l'ambiance ${track.label}`));
 }
 
 function toggleAmbiancePanel() {
@@ -3625,7 +4197,7 @@ async function setBookmark() {
 
     if (error) {
       console.error(error);
-      alert("Impossible d’enregistrer le marque-page dans la base de données.");
+      alert("Impossible d'enregistrer le marque-page dans la base de données.");
       return;
     }
   } else {
@@ -3701,6 +4273,8 @@ function bindEvents() {
 
   byId("search-input").addEventListener("input", renderBookGrid);
   byId("sort-select").addEventListener("change", renderBookGrid);
+  byId("export-library").addEventListener("click", exportLibraryBackup);
+  byId("import-library-file").addEventListener("change", importLibraryBackup);
   byId("book-form").addEventListener("submit", saveForm);
   document.querySelectorAll("[data-editor-tab]").forEach((button) => {
     button.addEventListener("click", () => switchEditorTab(button.dataset.editorTab));
@@ -3744,11 +4318,6 @@ function bindEvents() {
   });
   byId("book-cover-file").addEventListener("change", handleCoverFileChange);
   byId("reset-editor").addEventListener("click", () => fillForm(null));
-  byId("load-example").addEventListener("click", () => {
-    chapterSourceRichHtml = "";
-    byId("chapter-source").value = sampleText;
-    importChaptersFromSource("replace");
-  });
   byId("delete-book").addEventListener("click", deleteCurrentBook);
   byId("prev-page").addEventListener("click", () => changePageByDirection("backward"));
   byId("next-page").addEventListener("click", () => changePageByDirection("forward"));
@@ -3777,6 +4346,7 @@ function bindEvents() {
   byId("ambiance-toggle").addEventListener("click", toggleAmbiancePanel);
   byId("ambiance-play-toggle").addEventListener("click", toggleAmbiance);
   byId("sound-effects-toggle").addEventListener("click", toggleSoundEffects);
+  byId("add-ambiance-track").addEventListener("click", addAmbianceTrack);
   byId("infinite-scroll-toggle").addEventListener("click", toggleInfiniteScroll);
   byId("reader-settings-toggle").addEventListener("click", () => {
     byId("reader-settings").hidden = !byId("reader-settings").hidden;
@@ -3820,6 +4390,16 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && byId("editor-view").classList.contains("is-active")) {
+      event.preventDefault();
+      byId("book-form").requestSubmit();
+      return;
+    }
+    if (event.key === "/" && byId("reader-view").classList.contains("is-active") && document.activeElement?.tagName !== "INPUT") {
+      event.preventDefault();
+      byId("book-search").focus();
+      return;
+    }
     if (event.key === "Escape") {
       exitReaderFocus();
       return;
@@ -3845,6 +4425,7 @@ function bindEvents() {
 
   window.addEventListener("beforeunload", (event) => {
     if (!state.editorDirty) return;
+    saveEditorDraftNow();
     event.preventDefault();
     event.returnValue = "";
   });
@@ -3856,6 +4437,7 @@ async function init() {
   try {
     loadReaderPrefs();
     await loadBooks();
+    await loadAmbianceTracks();
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
@@ -3867,6 +4449,7 @@ async function init() {
     updateFocusButtons();
     renderBookGrid();
     showView("library");
+    offerEditorDraftRestore();
   } finally {
     setAppBusy(false);
   }

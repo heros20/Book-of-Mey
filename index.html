@@ -23,7 +23,7 @@
           <span class="brand-mark">BM</span>
           <span>
             <strong>Book of Mey</strong>
-            <small>Bibliothèque d’écriture</small>
+            <small>Bibliothèque d'écriture</small>
           </span>
         </a>
 
@@ -54,6 +54,13 @@
                 <option value="author">Auteur</option>
               </select>
             </label>
+            <div class="backup-actions" aria-label="Sauvegarde de la bibliotheque">
+              <button class="secondary-action" id="export-library" type="button">Exporter</button>
+              <label class="import-backup-button">
+                <span>Importer</span>
+                <input id="import-library-file" type="file" accept="application/json,.json" />
+              </label>
+            </div>
           </div>
 
           <div class="book-grid" id="book-grid" aria-live="polite"></div>
@@ -99,7 +106,7 @@
               <div class="cover-preview" id="cover-preview" aria-label="Aperçu couverture"></div>
               <label>
                 URL de couverture
-                <input id="book-cover" name="cover" placeholder="Optionnel : URL d’image" />
+                <input id="book-cover" name="cover" placeholder="Optionnel : URL d'image" />
               </label>
               <label>
                 Taille du texte
@@ -154,6 +161,24 @@
                 </div>
               </div>
 
+              <details class="ambiance-manager editor-ambiance-manager">
+                <summary>Sons d'ambiance</summary>
+                <label>
+                  Nom du son
+                  <input id="ambiance-track-label" type="text" placeholder="Pluie douce" />
+                </label>
+                <label>
+                  Fichier audio
+                  <input id="ambiance-track-file" type="file" accept="audio/*" />
+                </label>
+                <label>
+                  URL audio
+                  <input id="ambiance-track-url" type="url" placeholder="Optionnel : URL mp3, ogg, wav..." />
+                </label>
+                <button class="secondary-action" id="add-ambiance-track" type="button">Ajouter le son</button>
+                <div class="ambiance-track-list" id="ambiance-track-list" aria-live="polite"></div>
+              </details>
+
               <div class="editor-actions">
                 <button class="primary-action" id="save-book" type="submit">Enregistrer le livre</button>
                 <button class="danger-action" id="delete-book" type="button">Supprimer</button>
@@ -171,7 +196,6 @@
                   </p>
                 </div>
                 <div class="chapter-toolbar">
-                  <button class="secondary-action" id="load-example" type="button">Exemple</button>
                   <button class="primary-action" id="add-empty-chapter" type="button">Nouveau chapitre</button>
                 </div>
               </div>
@@ -207,7 +231,7 @@
                       <input id="chapter-illustration-file" type="file" accept="image/*" />
                     </label>
                     <div class="chapter-illustration-preview" id="chapter-illustration-preview" aria-label="Aperçu illustration"></div>
-                    <button class="secondary-action" id="remove-chapter-illustration" type="button">Retirer l’illustration</button>
+                    <button class="secondary-action" id="remove-chapter-illustration" type="button">Retirer l'illustration</button>
                   </div>
                   <div class="chapter-actions">
                     <button class="primary-action" id="save-chapter" type="button">Enregistrer le chapitre</button>
@@ -240,7 +264,7 @@
         <section class="view reader-view" id="reader-view" aria-labelledby="reader-title">
           <div class="reader-empty" id="reader-empty">
             <h1 id="reader-title">Aucun livre sélectionné</h1>
-            <p>Choisis un livre dans la bibliothèque pour ouvrir l’espace de lecture.</p>
+            <p>Choisis un livre dans la bibliothèque pour ouvrir l'espace de lecture.</p>
             <button class="primary-action" type="button" data-view-target="library">
               Voir la bibliothèque
             </button>
