@@ -1375,6 +1375,20 @@ a:focus-visible,
   width: 100%;
 }
 
+.auto-ambiance-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.auto-ambiance-toggle input {
+  width: 18px;
+  min-height: 18px;
+}
+
 .ambiance-manager {
   display: grid;
   gap: 10px;
