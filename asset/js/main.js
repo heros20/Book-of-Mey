@@ -67,6 +67,7 @@ const state = {
   artbookPages: [],
   isAnimating: false,
   isBusy: false,
+  isLibraryLoading: false,
   busyDepth: 0,
   lastWheelTurnAt: 0,
   suppressContinuousProgressUntil: 0,
@@ -447,18 +448,24 @@ async function refreshRemoteLibrary() {
       ? state.activeBookId
       : (state.books.some((book) => book.id === rememberedBookId) ? rememberedBookId : state.books[0]?.id || null);
 
+    state.isLibraryLoading = false;
     renderBookGrid();
     renderAmbianceTrackOptions();
   } catch (error) {
     console.warn("Supabase indisponible, utilisation du cache local.", error);
     state.storageMode = "local";
     state.db = null;
+    state.isLibraryLoading = false;
     if (!state.books.length) {
       state.books = [createSeedBook()];
-      saveBooks();
+      try {
+        saveBooks();
+      } catch (cacheError) {
+        console.warn("Cache local indisponible, livre de secours conservé en mémoire.", cacheError);
+      }
       state.activeBookId = state.books[0].id;
-      renderBookGrid();
     }
+    renderBookGrid();
   }
 }
 
@@ -474,12 +481,17 @@ async function initializeRemoteLibrary() {
 
   state.storageMode = "local";
   state.db = null;
+  state.isLibraryLoading = false;
   if (!state.books.length) {
     state.books = [createSeedBook()];
-    saveBooks();
+    try {
+      saveBooks();
+    } catch (cacheError) {
+      console.warn("Cache local indisponible, livre de secours conservé en mémoire.", cacheError);
+    }
     state.activeBookId = state.books[0].id;
-    renderBookGrid();
   }
+  renderBookGrid();
 }
 
 function normalizeAmbianceTrack(track = {}, fallbackIndex = 0) {
@@ -2072,10 +2084,22 @@ function formatBookSectionStats(book) {
 function renderBookGrid() {
   const grid = byId("book-grid");
   const template = byId("book-card-template");
-  const query = byId("search-input").value.trim().toLowerCase();
-  const sort = byId("sort-select").value;
 
   grid.innerHTML = "";
+  if (state.isLibraryLoading) {
+    grid.setAttribute("aria-busy", "true");
+    grid.innerHTML = `
+      <div class="library-loading-state">
+        <span class="busy-spinner" aria-hidden="true"></span>
+        <strong>Chargement des livres…</strong>
+      </div>
+    `;
+    return;
+  }
+
+  grid.removeAttribute("aria-busy");
+  const query = byId("search-input").value.trim().toLowerCase();
+  const sort = byId("sort-select").value;
 
   let books = [...state.books].filter((book) => {
     const haystack = [
@@ -4969,6 +4993,7 @@ function bindEvents() {
 
 function init() {
   loadReaderPrefs();
+  state.isLibraryLoading = hasSupabaseConfig();
   loadBooksFromLocalStorage({ createSeed: !hasSupabaseConfig() });
   loadLocalAmbianceTracks();
   state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
