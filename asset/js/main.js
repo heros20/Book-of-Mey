@@ -9,6 +9,7 @@ const AMBIANCE_BUCKET = "ambiance-sounds";
 const PAGE_FLIP_SOUND = "asset/sound/page-flip.mp3";
 const AMBIANCE_VOLUME = 0.35;
 const AMBIANCE_FADE_MS = 1400;
+const SUPABASE_SDK_SRC = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
 
 // Ajoute ici une entrée par fichier d'ambiance placé dans asset/sound/.
@@ -88,6 +89,7 @@ let chapterSaveFeedbackTimer = 0;
 let readerToastTimer = 0;
 let editorDraftTimer = 0;
 let isFillingEditor = false;
+let supabaseSdkPromise = null;
 
 function readJsonStorage(key, fallback) {
   try {
@@ -246,14 +248,34 @@ function createSeedBook() {
 }
 
 function hasSupabaseConfig() {
-  return Boolean(DB_CONFIG.url && DB_CONFIG.anonKey && window.supabase?.createClient);
+  return Boolean(DB_CONFIG.url && DB_CONFIG.anonKey);
 }
 
-function initDatabase() {
-  if (!hasSupabaseConfig()) return;
+function loadSupabaseSdk() {
+  if (window.supabase?.createClient) return Promise.resolve(window.supabase);
+  if (supabaseSdkPromise) return supabaseSdkPromise;
+
+  supabaseSdkPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = SUPABASE_SDK_SRC;
+    script.async = true;
+    script.onload = () => resolve(window.supabase);
+    script.onerror = () => reject(new Error("Impossible de charger le client Supabase."));
+    document.head.appendChild(script);
+  });
+
+  return supabaseSdkPromise;
+}
+
+async function initDatabase() {
+  if (!hasSupabaseConfig()) return false;
+
+  await loadSupabaseSdk();
+  if (!window.supabase?.createClient) return false;
 
   state.db = window.supabase.createClient(DB_CONFIG.url, DB_CONFIG.anonKey);
   state.storageMode = "supabase";
+  return true;
 }
 
 function getChapterTitleNumber(title) {
@@ -338,20 +360,25 @@ async function loadBooksFromDatabase() {
     return;
   }
 
-  const { data: chapters, error: chaptersError } = await state.db
-    .from("chapters")
-    .select("*")
-    .in("book_id", books.map((book) => book.id))
-    .order("position", { ascending: true });
+  const bookIds = books.map((book) => book.id);
+  const [chaptersResult, artbookResult] = await Promise.all([
+    state.db
+      .from("chapters")
+      .select("*")
+      .in("book_id", bookIds)
+      .order("position", { ascending: true }),
+    state.db
+      .from("artbook_items")
+      .select("*")
+      .in("book_id", bookIds)
+      .order("position", { ascending: true }),
+  ]);
+  const { data: chapters, error: chaptersError } = chaptersResult;
 
   if (chaptersError) throw chaptersError;
 
   let artbookItems = [];
-  const { data: artbookRows, error: artbookError } = await state.db
-    .from("artbook_items")
-    .select("*")
-    .in("book_id", books.map((book) => book.id))
-    .order("position", { ascending: true });
+  const { data: artbookRows, error: artbookError } = artbookResult;
 
   if (artbookError) {
     state.hasArtbookTable = false;
@@ -364,41 +391,84 @@ async function loadBooksFromDatabase() {
   state.books = books.map((book) => mapBookRow(book, chapters || [], artbookItems));
 }
 
-function loadBooksFromLocalStorage() {
+function loadBooksFromLocalStorage(options = {}) {
+  const createSeed = options.createSeed !== false;
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
-    state.books = [createSeedBook()];
-    saveBooks();
+    state.books = createSeed ? [createSeedBook()] : [];
+    if (createSeed) saveBooks();
     return;
   }
 
   try {
     state.books = JSON.parse(raw).map(normalizeBook);
   } catch {
-    state.books = [createSeedBook()];
-    saveBooks();
+    state.books = createSeed ? [createSeedBook()] : [];
+    if (createSeed) saveBooks();
   }
-}
-
-async function loadBooks() {
-  initDatabase();
-
-  if (state.storageMode === "supabase") {
-    try {
-      await loadBooksFromDatabase();
-      return;
-    } catch (error) {
-      console.warn("Supabase indisponible, fallback localStorage.", error);
-      state.storageMode = "local";
-      state.db = null;
-    }
-  }
-
-  loadBooksFromLocalStorage();
 }
 
 function saveBooks() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.books));
+}
+
+async function refreshRemoteLibrary() {
+  if (state.storageMode !== "supabase" || !state.db) return;
+
+  try {
+    await Promise.all([
+      loadBooksFromDatabase(),
+      loadAmbianceTracksFromDatabase(),
+    ]);
+    try {
+      saveBooks();
+    } catch (cacheError) {
+      console.warn("Cache local des livres saturé, synchronisation distante conservée.", cacheError);
+    }
+    try {
+      saveLocalAmbianceTracks();
+    } catch (cacheError) {
+      console.warn("Cache local des sons saturé, synchronisation distante conservée.", cacheError);
+    }
+
+    const rememberedBookId = localStorage.getItem(ACTIVE_BOOK_KEY);
+    state.activeBookId = state.books.some((book) => book.id === state.activeBookId)
+      ? state.activeBookId
+      : (state.books.some((book) => book.id === rememberedBookId) ? rememberedBookId : state.books[0]?.id || null);
+
+    renderBookGrid();
+    renderAmbianceTrackOptions();
+  } catch (error) {
+    console.warn("Supabase indisponible, utilisation du cache local.", error);
+    state.storageMode = "local";
+    state.db = null;
+    if (!state.books.length) {
+      state.books = [createSeedBook()];
+      saveBooks();
+      state.activeBookId = state.books[0].id;
+      renderBookGrid();
+    }
+  }
+}
+
+async function initializeRemoteLibrary() {
+  try {
+    if (await initDatabase()) {
+      await refreshRemoteLibrary();
+      return;
+    }
+  } catch (error) {
+    console.warn("Connexion distante indisponible, utilisation du cache local.", error);
+  }
+
+  state.storageMode = "local";
+  state.db = null;
+  if (!state.books.length) {
+    state.books = [createSeedBook()];
+    saveBooks();
+    state.activeBookId = state.books[0].id;
+    renderBookGrid();
+  }
 }
 
 function normalizeAmbianceTrack(track = {}, fallbackIndex = 0) {
@@ -4522,28 +4592,20 @@ function bindEvents() {
   });
 }
 
-async function init() {
-  setAppBusy(true, "Chargement de la bibliothèque…");
+function init() {
+  loadReaderPrefs();
+  loadBooksFromLocalStorage({ createSeed: !hasSupabaseConfig() });
+  loadLocalAmbianceTracks();
+  state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
+  fillForm(null);
+  bindEvents();
+  syncReaderPrefsControls();
+  updateFocusButtons();
+  renderBookGrid();
+  showView("library");
+  offerEditorDraftRestore();
 
-  try {
-    loadReaderPrefs();
-    await loadBooks();
-    await loadAmbianceTracks();
-    if (document.fonts?.ready) {
-      await document.fonts.ready;
-    }
-    await new Promise((resolve) => window.requestAnimationFrame(resolve));
-    state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
-    fillForm(null);
-    bindEvents();
-    syncReaderPrefsControls();
-    updateFocusButtons();
-    renderBookGrid();
-    showView("library");
-    offerEditorDraftRestore();
-  } finally {
-    setAppBusy(false);
-  }
+  void initializeRemoteLibrary();
 }
 
 init();
