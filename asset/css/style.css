@@ -548,6 +548,20 @@ a:focus-visible,
   gap: 18px;
 }
 
+.library-loading-state {
+  display: grid;
+  min-height: 52vh;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.library-loading-state strong {
+  font-size: 0.92rem;
+}
+
 .book-card {
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr);
