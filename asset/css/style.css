@@ -989,6 +989,50 @@ a:focus-visible,
   box-shadow: 0 0 0 3px rgba(95, 111, 82, 0.14);
 }
 
+.audio-anchor-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: end;
+  border: 1px dashed rgba(95, 111, 82, 0.42);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(95, 111, 82, 0.06);
+}
+
+.audio-anchor-control small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.rich-text-editor .audio-anchor {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 0 4px;
+  border: 1px solid rgba(95, 111, 82, 0.38);
+  border-radius: 999px;
+  padding: 2px 9px;
+  color: var(--accent-strong);
+  background: rgba(95, 111, 82, 0.12);
+  font-family: Inter, sans-serif;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.rich-text-editor .audio-anchor::before {
+  content: "Son : " attr(data-audio-label);
+}
+
+.paper-page .audio-anchor,
+.pagination-measurer .audio-anchor {
+  display: none;
+}
+
 .chapter-illustration-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px;
@@ -2516,8 +2560,13 @@ body.reader-focus .focus-exit {
   }
 
   .chapter-illustration-control,
-  .artbook-image-control {
+  .artbook-image-control,
+  .audio-anchor-control {
     grid-template-columns: 1fr;
+  }
+
+  .audio-anchor-control .secondary-action {
+    width: 100%;
   }
 
   .chapter-illustration-preview,

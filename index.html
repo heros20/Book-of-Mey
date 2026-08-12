@@ -12,8 +12,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
       rel="stylesheet"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <link rel="stylesheet" href="asset/css/style.css" />
   </head>
   <body>
@@ -162,7 +170,7 @@
               </div>
 
               <details class="ambiance-manager editor-ambiance-manager">
-                <summary>Sons d'ambiance</summary>
+                <summary>Bibliothèque audio (ambiances et sons ponctuels)</summary>
                 <label>
                   Nom du son
                   <input id="ambiance-track-label" type="text" placeholder="Pluie douce" />
@@ -229,6 +237,18 @@
                     Ambiance du chapitre
                     <select id="chapter-ambiance-track"></select>
                   </label>
+                  <div class="audio-anchor-control">
+                    <label>
+                      Son ponctuel
+                      <select id="chapter-audio-anchor-track"></select>
+                    </label>
+                    <button class="secondary-action" id="insert-audio-anchor" type="button">
+                      Insérer l'ancre au curseur
+                    </button>
+                    <small>
+                      L'ancre reste visible dans l'éditeur, mais disparaît pendant la lecture. Le son est joué une seule fois à l'arrivée sur sa page.
+                    </small>
+                  </div>
                   <div class="chapter-illustration-control">
                     <label>
                       Illustration de fin de chapitre
@@ -479,8 +499,7 @@
       </article>
     </template>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="asset/js/supabase-config.js"></script>
-    <script src="asset/js/main.js"></script>
+    <script defer src="asset/js/supabase-config.js"></script>
+    <script defer src="asset/js/main.js"></script>
   </body>
 </html>

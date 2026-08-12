@@ -9,6 +9,10 @@ const AMBIANCE_BUCKET = "ambiance-sounds";
 const PAGE_FLIP_SOUND = "asset/sound/page-flip.mp3";
 const AMBIANCE_VOLUME = 0.35;
 const AMBIANCE_FADE_MS = 1400;
+const AUDIO_ANCHOR_VOLUME = 0.8;
+const AUDIO_ANCHOR_FADE_IN_MS = 900;
+const AUDIO_ANCHOR_FADE_OUT_MS = 1200;
+const SUPABASE_SDK_SRC = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
 
 // Ajoute ici une entrée par fichier d'ambiance placé dans asset/sound/.
@@ -72,6 +76,13 @@ const state = {
   pageFlipAudio: null,
   ambianceAudio: null,
   ambianceFadeFrame: 0,
+  audioAnchorAudio: null,
+  audioAnchorFadeFrame: 0,
+  audioAnchorFadeOutStarted: false,
+  audioAnchorQueue: [],
+  playedAudioAnchors: new Set(),
+  suspendedAmbiance: null,
+  resumeAmbianceAfterAnchor: false,
   activeAmbianceTrackId: null,
   effectiveAmbianceTrackId: null,
   isAmbianceEnabled: false,
@@ -88,6 +99,8 @@ let chapterSaveFeedbackTimer = 0;
 let readerToastTimer = 0;
 let editorDraftTimer = 0;
 let isFillingEditor = false;
+let supabaseSdkPromise = null;
+let chapterEditorRange = null;
 
 function readJsonStorage(key, fallback) {
   try {
@@ -246,14 +259,34 @@ function createSeedBook() {
 }
 
 function hasSupabaseConfig() {
-  return Boolean(DB_CONFIG.url && DB_CONFIG.anonKey && window.supabase?.createClient);
+  return Boolean(DB_CONFIG.url && DB_CONFIG.anonKey);
 }
 
-function initDatabase() {
-  if (!hasSupabaseConfig()) return;
+function loadSupabaseSdk() {
+  if (window.supabase?.createClient) return Promise.resolve(window.supabase);
+  if (supabaseSdkPromise) return supabaseSdkPromise;
+
+  supabaseSdkPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = SUPABASE_SDK_SRC;
+    script.async = true;
+    script.onload = () => resolve(window.supabase);
+    script.onerror = () => reject(new Error("Impossible de charger le client Supabase."));
+    document.head.appendChild(script);
+  });
+
+  return supabaseSdkPromise;
+}
+
+async function initDatabase() {
+  if (!hasSupabaseConfig()) return false;
+
+  await loadSupabaseSdk();
+  if (!window.supabase?.createClient) return false;
 
   state.db = window.supabase.createClient(DB_CONFIG.url, DB_CONFIG.anonKey);
   state.storageMode = "supabase";
+  return true;
 }
 
 function getChapterTitleNumber(title) {
@@ -338,20 +371,25 @@ async function loadBooksFromDatabase() {
     return;
   }
 
-  const { data: chapters, error: chaptersError } = await state.db
-    .from("chapters")
-    .select("*")
-    .in("book_id", books.map((book) => book.id))
-    .order("position", { ascending: true });
+  const bookIds = books.map((book) => book.id);
+  const [chaptersResult, artbookResult] = await Promise.all([
+    state.db
+      .from("chapters")
+      .select("*")
+      .in("book_id", bookIds)
+      .order("position", { ascending: true }),
+    state.db
+      .from("artbook_items")
+      .select("*")
+      .in("book_id", bookIds)
+      .order("position", { ascending: true }),
+  ]);
+  const { data: chapters, error: chaptersError } = chaptersResult;
 
   if (chaptersError) throw chaptersError;
 
   let artbookItems = [];
-  const { data: artbookRows, error: artbookError } = await state.db
-    .from("artbook_items")
-    .select("*")
-    .in("book_id", books.map((book) => book.id))
-    .order("position", { ascending: true });
+  const { data: artbookRows, error: artbookError } = artbookResult;
 
   if (artbookError) {
     state.hasArtbookTable = false;
@@ -364,41 +402,84 @@ async function loadBooksFromDatabase() {
   state.books = books.map((book) => mapBookRow(book, chapters || [], artbookItems));
 }
 
-function loadBooksFromLocalStorage() {
+function loadBooksFromLocalStorage(options = {}) {
+  const createSeed = options.createSeed !== false;
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
-    state.books = [createSeedBook()];
-    saveBooks();
+    state.books = createSeed ? [createSeedBook()] : [];
+    if (createSeed) saveBooks();
     return;
   }
 
   try {
     state.books = JSON.parse(raw).map(normalizeBook);
   } catch {
-    state.books = [createSeedBook()];
-    saveBooks();
+    state.books = createSeed ? [createSeedBook()] : [];
+    if (createSeed) saveBooks();
   }
-}
-
-async function loadBooks() {
-  initDatabase();
-
-  if (state.storageMode === "supabase") {
-    try {
-      await loadBooksFromDatabase();
-      return;
-    } catch (error) {
-      console.warn("Supabase indisponible, fallback localStorage.", error);
-      state.storageMode = "local";
-      state.db = null;
-    }
-  }
-
-  loadBooksFromLocalStorage();
 }
 
 function saveBooks() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.books));
+}
+
+async function refreshRemoteLibrary() {
+  if (state.storageMode !== "supabase" || !state.db) return;
+
+  try {
+    await Promise.all([
+      loadBooksFromDatabase(),
+      loadAmbianceTracksFromDatabase(),
+    ]);
+    try {
+      saveBooks();
+    } catch (cacheError) {
+      console.warn("Cache local des livres saturé, synchronisation distante conservée.", cacheError);
+    }
+    try {
+      saveLocalAmbianceTracks();
+    } catch (cacheError) {
+      console.warn("Cache local des sons saturé, synchronisation distante conservée.", cacheError);
+    }
+
+    const rememberedBookId = localStorage.getItem(ACTIVE_BOOK_KEY);
+    state.activeBookId = state.books.some((book) => book.id === state.activeBookId)
+      ? state.activeBookId
+      : (state.books.some((book) => book.id === rememberedBookId) ? rememberedBookId : state.books[0]?.id || null);
+
+    renderBookGrid();
+    renderAmbianceTrackOptions();
+  } catch (error) {
+    console.warn("Supabase indisponible, utilisation du cache local.", error);
+    state.storageMode = "local";
+    state.db = null;
+    if (!state.books.length) {
+      state.books = [createSeedBook()];
+      saveBooks();
+      state.activeBookId = state.books[0].id;
+      renderBookGrid();
+    }
+  }
+}
+
+async function initializeRemoteLibrary() {
+  try {
+    if (await initDatabase()) {
+      await refreshRemoteLibrary();
+      return;
+    }
+  } catch (error) {
+    console.warn("Connexion distante indisponible, utilisation du cache local.", error);
+  }
+
+  state.storageMode = "local";
+  state.db = null;
+  if (!state.books.length) {
+    state.books = [createSeedBook()];
+    saveBooks();
+    state.activeBookId = state.books[0].id;
+    renderBookGrid();
+  }
 }
 
 function normalizeAmbianceTrack(track = {}, fallbackIndex = 0) {
@@ -849,6 +930,23 @@ function sanitizeRichHtml(html) {
       if (child.nodeType !== Node.ELEMENT_NODE) return;
 
       const tagName = child.tagName.toUpperCase();
+      if (tagName === "SPAN" && child.hasAttribute("data-audio-anchor")) {
+        const trackId = String(child.getAttribute("data-audio-anchor") || "").trim();
+        if (/^[a-z0-9_-]{1,100}$/i.test(trackId)) {
+          const cleanAnchor = document.createElement("span");
+          const label = String(child.getAttribute("data-audio-label") || "").trim().slice(0, 120);
+          const anchorId = String(child.getAttribute("data-audio-anchor-id") || "").trim();
+          cleanAnchor.className = "audio-anchor";
+          cleanAnchor.dataset.audioAnchor = trackId;
+          if (/^[a-z0-9_-]{1,100}$/i.test(anchorId)) cleanAnchor.dataset.audioAnchorId = anchorId;
+          if (label) cleanAnchor.dataset.audioLabel = label;
+          cleanAnchor.contentEditable = "false";
+          cleanAnchor.setAttribute("aria-label", label ? `Ancre sonore : ${label}` : "Ancre sonore");
+          target.appendChild(cleanAnchor);
+        }
+        return;
+      }
+
       if (skippedRichTags.has(tagName) || /^[OVWM]:/i.test(tagName) || isHiddenOfficeNode(child)) {
         return;
       }
@@ -915,6 +1013,60 @@ function clipboardToRichHtml(html, text) {
 
 function insertRichHtmlAtSelection(html) {
   document.execCommand("insertHTML", false, sanitizeRichHtml(html));
+}
+
+function rememberChapterEditorSelection() {
+  const editor = byId("chapter-content");
+  const selection = window.getSelection();
+  if (!editor || !selection?.rangeCount) return;
+
+  const range = selection.getRangeAt(0);
+  const rangeContainer = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+    ? range.commonAncestorContainer.parentElement
+    : range.commonAncestorContainer;
+  if (rangeContainer && editor.contains(rangeContainer)) {
+    chapterEditorRange = range.cloneRange();
+  }
+}
+
+function insertAudioAnchor() {
+  const editor = byId("chapter-content");
+  const select = byId("chapter-audio-anchor-track");
+  const track = getAmbianceTrack(select?.value);
+  if (!editor || !getEditingChapter() || !track) return;
+
+  editor.focus();
+  const range = chapterEditorRange?.startContainer?.isConnected ? chapterEditorRange : document.createRange();
+  const rangeContainer = range.commonAncestorContainer?.nodeType === Node.TEXT_NODE
+    ? range.commonAncestorContainer.parentElement
+    : range.commonAncestorContainer;
+  if (!rangeContainer || !editor.contains(rangeContainer)) {
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+
+  const anchor = document.createElement("span");
+  anchor.className = "audio-anchor";
+  anchor.dataset.audioAnchor = track.id;
+  anchor.dataset.audioAnchorId = crypto.randomUUID();
+  anchor.dataset.audioLabel = track.label;
+  anchor.contentEditable = "false";
+  anchor.setAttribute("aria-label", `Ancre sonore : ${track.label}`);
+
+  const spacer = document.createTextNode("\u00a0");
+  const fragment = document.createDocumentFragment();
+  fragment.append(anchor, spacer);
+  range.deleteContents();
+  range.insertNode(fragment);
+  range.setStartAfter(spacer);
+  range.collapse(true);
+
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  chapterEditorRange = range.cloneRange();
+  updateCurrentChapterDraft();
+  showReaderToast(`Ancre « ${track.label} » insérée.`);
 }
 
 function handleRichEditorPaste(event) {
@@ -1162,6 +1314,8 @@ function renderChapterControl() {
   const titleInput = byId("chapter-title");
   const contentInput = byId("chapter-content");
   const ambianceSelect = byId("chapter-ambiance-track");
+  const audioAnchorSelect = byId("chapter-audio-anchor-track");
+  const insertAudioAnchorButton = byId("insert-audio-anchor");
   const illustrationFileInput = byId("chapter-illustration-file");
   const removeIllustrationButton = byId("remove-chapter-illustration");
   const deleteButton = byId("delete-chapter");
@@ -1193,13 +1347,17 @@ function renderChapterControl() {
 
   titleInput.value = chapter?.title || "";
   contentInput.innerHTML = normalizeRichContent(chapter?.content || "");
+  chapterEditorRange = null;
   renderChapterAmbianceOptions();
+  renderAudioAnchorOptions();
   if (illustrationFileInput) illustrationFileInput.value = "";
   setChapterIllustrationPreview(chapter?.illustration || "");
   titleInput.disabled = !chapter;
   contentInput.contentEditable = chapter ? "true" : "false";
   contentInput.setAttribute("aria-disabled", chapter ? "false" : "true");
   if (ambianceSelect) ambianceSelect.disabled = !chapter;
+  if (audioAnchorSelect) audioAnchorSelect.disabled = !chapter;
+  if (insertAudioAnchorButton) insertAudioAnchorButton.disabled = !chapter;
   if (illustrationFileInput) illustrationFileInput.disabled = !chapter;
   if (removeIllustrationButton) removeIllustrationButton.disabled = !chapter || !chapter.illustration;
   deleteButton.disabled = !chapter;
@@ -1606,6 +1764,27 @@ function paragraphPlainText(paragraph) {
   return richContentToPlainText(paragraph);
 }
 
+function paginationTextFromParagraph(paragraph) {
+  const container = document.createElement("div");
+  container.innerHTML = normalizeRichContent(paragraph);
+  container.querySelectorAll("[data-audio-anchor]").forEach((anchor) => {
+    const trackId = String(anchor.dataset.audioAnchor || "").trim();
+    const anchorId = String(anchor.dataset.audioAnchorId || "").trim();
+    const suffix = anchorId ? `:${anchorId}` : "";
+    anchor.replaceWith(document.createTextNode(trackId ? ` [[audio-anchor:${trackId}${suffix}]] ` : ""));
+  });
+  return container.textContent.replace(/\s+/g, " ").trim();
+}
+
+function paginationChunkHtml(chunk) {
+  return escapeHtml(chunk).replace(/\[\[audio-anchor:([a-z0-9_-]{1,100})(?::([a-z0-9_-]{1,100}))?\]\]/gi, (match, trackId, anchorId) => {
+    const track = getAllAmbianceTracks().find((item) => item.id === trackId);
+    const label = track?.label || "Son";
+    const anchorIdAttribute = anchorId ? ` data-audio-anchor-id="${escapeHtml(anchorId)}"` : "";
+    return `<span class="audio-anchor" data-audio-anchor="${escapeHtml(trackId)}"${anchorIdAttribute} data-audio-label="${escapeHtml(label)}" contenteditable="false" aria-label="Ancre sonore : ${escapeHtml(label)}"></span>`;
+  });
+}
+
 function createPage(chapter, chapterIndex, startsChapter, startParagraphIndex = 0) {
   return {
     chapterId: chapter.id,
@@ -1731,7 +1910,7 @@ function overflowsPage(measurer) {
 }
 
 function splitOverflowingParagraph(paragraph, chapter, chapterIndex, paragraphIndex, measurer, startsChapter) {
-  const plainParagraph = paragraphPlainText(paragraph).replace(/\s+/g, " ").trim();
+  const plainParagraph = paginationTextFromParagraph(paragraph);
   const tokens = plainParagraph.match(/\S+\s*/g) || [];
   const pages = [];
   let tokenIndex = 0;
@@ -1746,7 +1925,7 @@ function splitOverflowingParagraph(paragraph, chapter, chapterIndex, paragraphIn
       const count = Math.floor((low + high) / 2);
       const chunk = tokens.slice(tokenIndex, tokenIndex + count).join("").trim();
       const testPage = createPage(chapter, chapterIndex, startsChapter && firstChunk, paragraphIndex);
-      testPage.paragraphs.push(escapeHtml(chunk));
+      testPage.paragraphs.push(paginationChunkHtml(chunk));
       measurer.innerHTML = pageHtml(testPage);
 
       if (!overflowsPage(measurer) || count === 1) {
@@ -1760,7 +1939,7 @@ function splitOverflowingParagraph(paragraph, chapter, chapterIndex, paragraphIn
     const chunk = tokens.slice(tokenIndex, tokenIndex + best).join("").trim();
     if (chunk) {
       const chunkPage = createPage(chapter, chapterIndex, startsChapter && firstChunk, paragraphIndex);
-      chunkPage.paragraphs.push(escapeHtml(chunk));
+      chunkPage.paragraphs.push(paginationChunkHtml(chunk));
       pages.push(chunkPage);
     }
     tokenIndex += best;
@@ -2693,6 +2872,8 @@ function openReader(bookId, page = null) {
   const book = getBook(bookId);
   if (!book) return;
 
+  cancelAudioAnchorPlayback(true);
+  state.playedAudioAnchors = new Set();
   state.activeBookId = bookId;
   localStorage.setItem(ACTIVE_BOOK_KEY, bookId);
   showView("reader");
@@ -2844,7 +3025,7 @@ function updateContinuousReadingProgress() {
   updateReaderProgressUI(book, { updateIndicator: false });
   renderToc(book);
   renderBookSearchResults();
-  syncChapterAmbiance();
+  if (!syncPageAudioAnchors()) syncChapterAmbiance();
 }
 
 function renderReader() {
@@ -2882,7 +3063,7 @@ function renderReader() {
     byId("page-hotspot-right").disabled = state.currentPage >= state.pages.length - 1;
     renderToc(book);
     renderBookSearchResults();
-    syncChapterAmbiance();
+    if (!syncPageAudioAnchors()) syncChapterAmbiance();
     window.requestAnimationFrame(() => scrollToContinuousPage(state.currentPage, "auto"));
     return;
   }
@@ -2917,7 +3098,7 @@ function renderReader() {
 
   renderToc(book);
   renderBookSearchResults();
-  syncChapterAmbiance();
+  if (!syncPageAudioAnchors()) syncChapterAmbiance();
 }
 
 function toggleReaderSidebar() {
@@ -3611,6 +3792,7 @@ function toggleSoundEffects() {
   }
 
   if (!state.readerPrefs.soundEffects) {
+    cancelAudioAnchorPlayback(false);
     updateSoundEffectsButton();
     updateAmbianceButton();
     stopAmbiance();
@@ -3618,6 +3800,9 @@ function toggleSoundEffects() {
   }
 
   updateSoundEffectsButton();
+  if (byId("reader-view")?.classList.contains("is-active")) {
+    if (!syncPageAudioAnchors()) syncChapterAmbiance();
+  }
 }
 
 function updateInfiniteScrollButton() {
@@ -3655,6 +3840,7 @@ function renderAmbianceTrackOptions() {
   select.value = selectedTrack.id;
   renderAmbianceTrackList();
   renderChapterAmbianceOptions();
+  renderAudioAnchorOptions();
 }
 
 function renderChapterAmbianceOptions() {
@@ -3669,6 +3855,20 @@ function renderChapterAmbianceOptions() {
   ];
   select.innerHTML = options.join("");
   select.value = currentValue;
+}
+
+function renderAudioAnchorOptions() {
+  const select = byId("chapter-audio-anchor-track");
+  if (!select) return;
+
+  const currentValue = select.value;
+  const tracks = getAllAmbianceTracks();
+  select.innerHTML = tracks
+    .map((track) => `<option value="${escapeHtml(track.id)}">${escapeHtml(track.label)}</option>`)
+    .join("");
+  select.value = tracks.some((track) => track.id === currentValue)
+    ? currentValue
+    : (tracks[0]?.id || "");
 }
 
 function renderAmbianceTrackList() {
@@ -3949,8 +4149,14 @@ function fadeAmbianceVolume(targetVolume, onComplete = null, audio = state.ambia
 
   cancelAmbianceFade();
 
+  if (Math.abs(startVolume - targetVolume) < 0.001) {
+    audio.volume = targetVolume;
+    onComplete?.();
+    return;
+  }
+
   const step = (now) => {
-    const progress = Math.min((now - startTime) / AMBIANCE_FADE_MS, 1);
+    const progress = Math.max(0, Math.min((now - startTime) / AMBIANCE_FADE_MS, 1));
     const easedProgress = 1 - Math.pow(1 - progress, 3);
 
     audio.volume = startVolume + (targetVolume - startVolume) * easedProgress;
@@ -3968,10 +4174,236 @@ function fadeAmbianceVolume(targetVolume, onComplete = null, audio = state.ambia
   state.ambianceFadeFrame = window.requestAnimationFrame(step);
 }
 
+function getPageAudioAnchors(page) {
+  if (!page?.paragraphs?.length) return [];
+
+  const template = document.createElement("template");
+  template.innerHTML = page.paragraphs.join("");
+  return Array.from(template.content.querySelectorAll("[data-audio-anchor]"))
+    .map((anchor) => ({
+      trackId: String(anchor.dataset.audioAnchor || "").trim(),
+      anchorId: String(anchor.dataset.audioAnchorId || "").trim(),
+    }))
+    .filter((anchor) => anchor.trackId);
+}
+
+function getVisibleAudioAnchorPages() {
+  if (isInfiniteScrollActive()) return [state.currentPage];
+
+  const spread = getVisiblePageIndices(state.currentPage);
+  return [spread.leftIndex, spread.rightIndex]
+    .filter((pageIndex, index, pages) => pageIndex >= 0 && pageIndex < state.pages.length && pages.indexOf(pageIndex) === index);
+}
+
+function syncPageAudioAnchors() {
+  if (!state.readerPrefs.soundEffects) return false;
+
+  const book = getBook(state.activeBookId);
+  if (!book) return false;
+
+  let queuedAnAnchor = false;
+  getVisibleAudioAnchorPages().forEach((pageIndex) => {
+    getPageAudioAnchors(state.pages[pageIndex]).forEach(({ trackId, anchorId }, anchorIndex) => {
+      const key = anchorId
+        ? `${book.id}:${anchorId}`
+        : `${book.id}:${pageIndex}:${anchorIndex}:${trackId}`;
+      if (state.playedAudioAnchors.has(key)) return;
+
+      const track = getAllAmbianceTracks().find((item) => item.id === trackId);
+      state.playedAudioAnchors.add(key);
+      if (!track) return;
+
+      state.audioAnchorQueue.push({ key, pageIndex, track });
+      queuedAnAnchor = true;
+    });
+  });
+
+  if (queuedAnAnchor) playNextAudioAnchor();
+  return queuedAnAnchor || Boolean(state.audioAnchorAudio) || state.audioAnchorQueue.length > 0;
+}
+
+function cancelAudioAnchorFade() {
+  if (!state.audioAnchorFadeFrame) return;
+  window.cancelAnimationFrame(state.audioAnchorFadeFrame);
+  state.audioAnchorFadeFrame = 0;
+}
+
+function fadeAudioAnchorVolume(audio, targetVolume, duration, onComplete = null) {
+  const startVolume = audio.volume;
+  const startTime = performance.now();
+  const safeDuration = Math.max(1, duration);
+  cancelAudioAnchorFade();
+
+  const step = (now) => {
+    if (state.audioAnchorAudio !== audio) return;
+    const progress = Math.max(0, Math.min((now - startTime) / safeDuration, 1));
+    const easedProgress = 1 - Math.pow(1 - progress, 3);
+    audio.volume = startVolume + (targetVolume - startVolume) * easedProgress;
+
+    if (progress < 1) {
+      state.audioAnchorFadeFrame = window.requestAnimationFrame(step);
+      return;
+    }
+
+    state.audioAnchorFadeFrame = 0;
+    audio.volume = targetVolume;
+    onComplete?.();
+  };
+
+  state.audioAnchorFadeFrame = window.requestAnimationFrame(step);
+}
+
+function resumeSuspendedAmbiance() {
+  const suspended = state.suspendedAmbiance;
+  state.suspendedAmbiance = null;
+
+  if (
+    suspended?.audio &&
+    suspended.shouldResume &&
+    state.isAmbianceEnabled &&
+    state.readerPrefs.soundEffects &&
+    state.ambianceAudio === suspended.audio
+  ) {
+    const playPromise = suspended.audio.play();
+    const fadeIn = () => fadeAmbianceVolume(suspended.targetVolume, null, suspended.audio);
+    if (playPromise?.then) {
+      playPromise.then(fadeIn).catch(() => stopAmbiance());
+    } else {
+      fadeIn();
+    }
+    state.resumeAmbianceAfterAnchor = false;
+    return;
+  }
+
+  if (state.resumeAmbianceAfterAnchor && state.isAmbianceEnabled && state.readerPrefs.soundEffects) {
+    state.resumeAmbianceAfterAnchor = false;
+    startAmbiance();
+    return;
+  }
+
+  state.resumeAmbianceAfterAnchor = false;
+}
+
+function finishAudioAnchor(audio) {
+  if (state.audioAnchorAudio !== audio) return;
+
+  cancelAudioAnchorFade();
+  audio.pause();
+  audio.volume = 0;
+  audio.onended = null;
+  audio.onerror = null;
+  audio.ontimeupdate = null;
+  state.audioAnchorAudio = null;
+  state.audioAnchorFadeOutStarted = false;
+
+  if (state.audioAnchorQueue.length) {
+    playNextAudioAnchor();
+    return;
+  }
+
+  resumeSuspendedAmbiance();
+}
+
+function beginAudioAnchor(item) {
+  const audio = new Audio(item.track.src);
+  audio.loop = false;
+  audio.preload = "auto";
+  audio.volume = 0;
+  state.audioAnchorAudio = audio;
+  state.audioAnchorFadeOutStarted = false;
+
+  audio.onended = () => finishAudioAnchor(audio);
+  audio.onerror = () => finishAudioAnchor(audio);
+  audio.ontimeupdate = () => {
+    if (state.audioAnchorFadeOutStarted || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    const fadeWindowMs = Math.min(AUDIO_ANCHOR_FADE_OUT_MS, audio.duration * 300);
+    const remainingMs = Math.max(0, (audio.duration - audio.currentTime) * 1000);
+    if (remainingMs > fadeWindowMs) return;
+
+    state.audioAnchorFadeOutStarted = true;
+    fadeAudioAnchorVolume(audio, 0, Math.max(120, remainingMs), () => finishAudioAnchor(audio));
+  };
+
+  const playPromise = audio.play();
+  const fadeIn = () => {
+    const duration = Number.isFinite(audio.duration) ? audio.duration * 250 : AUDIO_ANCHOR_FADE_IN_MS;
+    fadeAudioAnchorVolume(audio, AUDIO_ANCHOR_VOLUME, Math.min(AUDIO_ANCHOR_FADE_IN_MS, duration));
+    showReaderToast(`Son : ${item.track.label}`);
+  };
+
+  if (playPromise?.then) {
+    playPromise.then(fadeIn).catch(() => finishAudioAnchor(audio));
+  } else {
+    fadeIn();
+  }
+}
+
+function playNextAudioAnchor() {
+  if (state.audioAnchorAudio) return;
+
+  const next = state.audioAnchorQueue.shift();
+  if (!next) {
+    resumeSuspendedAmbiance();
+    return;
+  }
+
+  if (state.suspendedAmbiance) {
+    beginAudioAnchor(next);
+    return;
+  }
+
+  const ambianceAudio = state.ambianceAudio;
+  const shouldResumeAmbiance = Boolean(state.isAmbianceEnabled && ambianceAudio && !ambianceAudio.paused);
+  if (!shouldResumeAmbiance) {
+    beginAudioAnchor(next);
+    return;
+  }
+
+  const ambianceTrack = getAmbianceTrack(state.activeAmbianceTrackId);
+  state.suspendedAmbiance = {
+    audio: ambianceAudio,
+    shouldResume: true,
+    targetVolume: ambianceTrack.volume ?? AMBIANCE_VOLUME,
+  };
+  cancelAmbianceFade();
+  fadeAmbianceVolume(0, () => {
+    ambianceAudio.pause();
+    beginAudioAnchor(next);
+  }, ambianceAudio);
+}
+
+function cancelAudioAnchorPlayback(resumeAmbiance = false) {
+  const audio = state.audioAnchorAudio;
+  cancelAudioAnchorFade();
+  state.audioAnchorQueue = [];
+  state.audioAnchorAudio = null;
+  state.audioAnchorFadeOutStarted = false;
+  if (audio) {
+    audio.pause();
+    audio.volume = 0;
+  }
+
+  if (resumeAmbiance) {
+    resumeSuspendedAmbiance();
+    return;
+  }
+
+  state.suspendedAmbiance = null;
+  state.resumeAmbianceAfterAnchor = false;
+}
+
 function startAmbiance() {
   if (!state.readerPrefs.soundEffects) {
     updateSoundEffectsButton();
     updateAmbianceButton();
+    return;
+  }
+
+  if (state.audioAnchorAudio || state.audioAnchorQueue.length) {
+    state.isAmbianceEnabled = true;
+    state.resumeAmbianceAfterAnchor = true;
+    updateAmbianceButton();
+    updateAmbiancePlayButton();
     return;
   }
 
@@ -4010,6 +4442,7 @@ function startAmbiance() {
 
 function stopAmbiance(onComplete = null) {
   const audio = state.ambianceAudio;
+  state.resumeAmbianceAfterAnchor = false;
   if (!state.isAmbianceEnabled && (!audio || audio.paused)) {
     onComplete?.();
     return;
@@ -4048,6 +4481,13 @@ function updateAmbianceTrack(trackId, options = {}) {
 
   if (nextTrack.id === previousTrack.id) return;
 
+  if (state.audioAnchorAudio || state.audioAnchorQueue.length) {
+    state.suspendedAmbiance = null;
+    state.resumeAmbianceAfterAnchor = state.isAmbianceEnabled;
+    resetAmbianceAudio();
+    return;
+  }
+
   if (state.isAmbianceEnabled && state.readerPrefs.soundEffects) {
     stopAmbiance(() => startAmbiance());
     return;
@@ -4076,6 +4516,7 @@ function goToPage(pageIndex) {
       updateReaderProgressUI(book);
       renderToc(book);
       renderBookSearchResults();
+      if (!syncPageAudioAnchors()) syncChapterAmbiance();
     }
     scrollToContinuousPage(nextPage);
     return;
@@ -4381,6 +4822,10 @@ function bindEvents() {
   byId("chapter-title").addEventListener("input", updateCurrentChapterDraft);
   byId("chapter-content").addEventListener("input", updateCurrentChapterDraft);
   byId("chapter-content").addEventListener("paste", handleRichEditorPaste);
+  byId("chapter-content").addEventListener("keyup", rememberChapterEditorSelection);
+  byId("chapter-content").addEventListener("mouseup", rememberChapterEditorSelection);
+  document.addEventListener("selectionchange", rememberChapterEditorSelection);
+  byId("insert-audio-anchor").addEventListener("click", insertAudioAnchor);
   byId("chapter-illustration-file").addEventListener("change", handleChapterIllustrationFileChange);
   byId("remove-chapter-illustration").addEventListener("click", removeChapterIllustration);
   byId("save-chapter").addEventListener("click", saveCurrentChapter);
@@ -4522,28 +4967,20 @@ function bindEvents() {
   });
 }
 
-async function init() {
-  setAppBusy(true, "Chargement de la bibliothèque…");
+function init() {
+  loadReaderPrefs();
+  loadBooksFromLocalStorage({ createSeed: !hasSupabaseConfig() });
+  loadLocalAmbianceTracks();
+  state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
+  fillForm(null);
+  bindEvents();
+  syncReaderPrefsControls();
+  updateFocusButtons();
+  renderBookGrid();
+  showView("library");
+  offerEditorDraftRestore();
 
-  try {
-    loadReaderPrefs();
-    await loadBooks();
-    await loadAmbianceTracks();
-    if (document.fonts?.ready) {
-      await document.fonts.ready;
-    }
-    await new Promise((resolve) => window.requestAnimationFrame(resolve));
-    state.activeBookId = localStorage.getItem(ACTIVE_BOOK_KEY) || state.books[0]?.id || null;
-    fillForm(null);
-    bindEvents();
-    syncReaderPrefsControls();
-    updateFocusButtons();
-    renderBookGrid();
-    showView("library");
-    offerEditorDraftRestore();
-  } finally {
-    setAppBusy(false);
-  }
+  void initializeRemoteLibrary();
 }
 
 init();
