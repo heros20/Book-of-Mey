@@ -12,6 +12,7 @@ const AMBIANCE_FADE_MS = 1400;
 const AUDIO_ANCHOR_VOLUME = 0.8;
 const AUDIO_ANCHOR_FADE_IN_MS = 900;
 const AUDIO_ANCHOR_FADE_OUT_MS = 1200;
+const AUDIO_ANCHOR_TOKEN_PATTERN = /\[\[audio-anchor:([a-z0-9_-]{1,100}):([a-z0-9_-]{1,100}|-):([^\]\s]*)\]\]/gi;
 const SUPABASE_SDK_SRC = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
 
@@ -81,7 +82,9 @@ const state = {
   audioAnchorFadeFrame: 0,
   audioAnchorFadeOutStarted: false,
   audioAnchorQueue: [],
+  pendingAudioAnchors: new Set(),
   playedAudioAnchors: new Set(),
+  activeAudioAnchorItem: null,
   suspendedAmbiance: null,
   resumeAmbianceAfterAnchor: false,
   activeAmbianceTrackId: null,
@@ -506,6 +509,12 @@ function normalizeAmbianceTrack(track = {}, fallbackIndex = 0) {
 
 function getAllAmbianceTracks() {
   return [...DEFAULT_AMBIANCE_TRACKS, ...state.ambianceTracks].filter((track) => track.src);
+}
+
+function findAmbianceTrack(trackId) {
+  const normalizedTrackId = String(trackId || "").trim();
+  if (!normalizedTrackId) return null;
+  return getAllAmbianceTracks().find((track) => track.id === normalizedTrackId) || null;
 }
 
 function saveLocalAmbianceTracks() {
@@ -1041,10 +1050,46 @@ function rememberChapterEditorSelection() {
   }
 }
 
+function hasOnlyWhitespaceBetweenAudioAnchors(firstAnchor, secondAnchor) {
+  if (!firstAnchor || !secondAnchor || firstAnchor.parentElement !== secondAnchor.parentElement) return false;
+
+  const range = document.createRange();
+  range.setStartAfter(firstAnchor);
+  range.setEndBefore(secondAnchor);
+  const between = range.cloneContents();
+  between.querySelectorAll?.("[data-audio-anchor]").forEach((anchor) => anchor.remove());
+  return !between.textContent.replace(/\u00a0/g, " ").trim() && !between.querySelector?.("img, audio, video, iframe, svg");
+}
+
+function replaceAdjacentAudioAnchors(anchor) {
+  const parent = anchor?.parentElement;
+  if (!parent) return 0;
+
+  let replacedCount = 0;
+  let anchors = Array.from(parent.querySelectorAll("[data-audio-anchor]"));
+  let anchorIndex = anchors.indexOf(anchor);
+
+  while (anchorIndex > 0 && hasOnlyWhitespaceBetweenAudioAnchors(anchors[anchorIndex - 1], anchor)) {
+    anchors[anchorIndex - 1].remove();
+    replacedCount += 1;
+    anchors = Array.from(parent.querySelectorAll("[data-audio-anchor]"));
+    anchorIndex = anchors.indexOf(anchor);
+  }
+
+  while (anchorIndex >= 0 && anchorIndex < anchors.length - 1 && hasOnlyWhitespaceBetweenAudioAnchors(anchor, anchors[anchorIndex + 1])) {
+    anchors[anchorIndex + 1].remove();
+    replacedCount += 1;
+    anchors = Array.from(parent.querySelectorAll("[data-audio-anchor]"));
+    anchorIndex = anchors.indexOf(anchor);
+  }
+
+  return replacedCount;
+}
+
 function insertAudioAnchor() {
   const editor = byId("chapter-content");
   const select = byId("chapter-audio-anchor-track");
-  const track = getAmbianceTrack(select?.value);
+  const track = findAmbianceTrack(select?.value);
   if (!editor || !getEditingChapter() || !track) return;
 
   editor.focus();
@@ -1070,6 +1115,7 @@ function insertAudioAnchor() {
   fragment.append(anchor, spacer);
   range.deleteContents();
   range.insertNode(fragment);
+  const replacedCount = replaceAdjacentAudioAnchors(anchor);
   range.setStartAfter(spacer);
   range.collapse(true);
 
@@ -1078,7 +1124,9 @@ function insertAudioAnchor() {
   selection.addRange(range);
   chapterEditorRange = range.cloneRange();
   updateCurrentChapterDraft();
-  showReaderToast(`Ancre « ${track.label} » insérée.`);
+  showReaderToast(replacedCount
+    ? `Ancre remplacée par « ${track.label} ».`
+    : `Ancre « ${track.label} » insérée.`);
 }
 
 function handleRichEditorPaste(event) {
@@ -1782,19 +1830,55 @@ function paginationTextFromParagraph(paragraph) {
   container.querySelectorAll("[data-audio-anchor]").forEach((anchor) => {
     const trackId = String(anchor.dataset.audioAnchor || "").trim();
     const anchorId = String(anchor.dataset.audioAnchorId || "").trim();
-    const suffix = anchorId ? `:${anchorId}` : "";
-    anchor.replaceWith(document.createTextNode(trackId ? ` [[audio-anchor:${trackId}${suffix}]] ` : ""));
+    const trackLabel = encodeURIComponent(String(anchor.dataset.audioLabel || "").trim().slice(0, 120));
+    const safeAnchorId = anchorId || "-";
+    anchor.replaceWith(document.createTextNode(trackId ? ` [[audio-anchor:${trackId}:${safeAnchorId}:${trackLabel}]] ` : ""));
   });
   return container.textContent.replace(/\s+/g, " ").trim();
 }
 
 function paginationChunkHtml(chunk) {
-  return escapeHtml(chunk).replace(/\[\[audio-anchor:([a-z0-9_-]{1,100})(?::([a-z0-9_-]{1,100}))?\]\]/gi, (match, trackId, anchorId) => {
-    const track = getAllAmbianceTracks().find((item) => item.id === trackId);
-    const label = track?.label || "Son";
-    const anchorIdAttribute = anchorId ? ` data-audio-anchor-id="${escapeHtml(anchorId)}"` : "";
+  return escapeHtml(chunk).replace(AUDIO_ANCHOR_TOKEN_PATTERN, (match, trackId, anchorId, encodedLabel) => {
+    const track = findAmbianceTrack(trackId);
+    let storedLabel = "";
+    try {
+      storedLabel = decodeURIComponent(encodedLabel || "").trim().slice(0, 120);
+    } catch {
+    }
+    const label = track?.label || storedLabel || "Son";
+    const anchorIdAttribute = anchorId && anchorId !== "-" ? ` data-audio-anchor-id="${escapeHtml(anchorId)}"` : "";
     return `<span class="audio-anchor" data-audio-anchor="${escapeHtml(trackId)}"${anchorIdAttribute} data-audio-label="${escapeHtml(label)}" contenteditable="false" aria-label="Ancre sonore : ${escapeHtml(label)}"></span>`;
   });
+}
+
+function paginationVisibleTextLength(text) {
+  return String(text || "").replace(AUDIO_ANCHOR_TOKEN_PATTERN, "").length;
+}
+
+function splitPaginationText(text, maxVisibleCharacters) {
+  const tokens = String(text || "").match(/\S+\s*/g) || [];
+  const chunks = [];
+  let currentTokens = [];
+  let currentLength = 0;
+
+  const flush = () => {
+    const chunk = currentTokens.join("").trim();
+    if (chunk) chunks.push(chunk);
+    currentTokens = [];
+    currentLength = 0;
+  };
+
+  tokens.forEach((token) => {
+    const tokenLength = paginationVisibleTextLength(token);
+    if (currentTokens.length && tokenLength > 0 && currentLength + tokenLength > maxVisibleCharacters) {
+      flush();
+    }
+    currentTokens.push(token);
+    currentLength += tokenLength;
+  });
+  flush();
+
+  return chunks;
 }
 
 function createPage(chapter, chapterIndex, startsChapter, startParagraphIndex = 0) {
@@ -1839,6 +1923,7 @@ function estimatePaginateBook(book) {
 
     paragraphs.forEach((paragraph, paragraphIndex) => {
       const plainParagraph = paragraphPlainText(paragraph);
+      const paginationParagraph = paginationTextFromParagraph(paragraph);
       const weight = plainParagraph.length + 90;
       if (page.paragraphs.length && page.charCount + weight > maxChars) {
         pages.push(page);
@@ -1846,14 +1931,15 @@ function estimatePaginateBook(book) {
       }
 
       if (plainParagraph.length > maxChars) {
-        const chunks = plainParagraph.match(new RegExp(`.{1,${Math.max(420, maxChars - 160)}}(\\s|$)`, "g")) || [plainParagraph];
+        const chunks = splitPaginationText(paginationParagraph, Math.max(420, maxChars - 160));
         chunks.forEach((chunk, chunkIndex) => {
-          if (page.paragraphs.length && page.charCount + chunk.length > maxChars) {
+          const visibleChunkLength = paginationVisibleTextLength(chunk);
+          if (page.paragraphs.length && page.charCount + visibleChunkLength > maxChars) {
             pages.push(page);
             page = createPage(chapter, chapterIndex, false, paragraphIndex);
           }
-          page.paragraphs.push(escapeHtml(chunk.trim()));
-          page.charCount += chunk.length + 90;
+          page.paragraphs.push(paginationChunkHtml(chunk));
+          page.charCount += visibleChunkLength + 90;
           if (chunkIndex < chunks.length - 1) {
             pages.push(page);
             page = createPage(chapter, chapterIndex, false, paragraphIndex);
@@ -4198,17 +4284,46 @@ function fadeAmbianceVolume(targetVolume, onComplete = null, audio = state.ambia
   state.ambianceFadeFrame = window.requestAnimationFrame(step);
 }
 
+function normalizeAudioAnchorLabel(label) {
+  return String(label || "").trim().toLocaleLowerCase("fr-FR");
+}
+
+function resolveAudioAnchorTrack(trackId, trackLabel = "") {
+  const exactTrack = findAmbianceTrack(trackId);
+  if (exactTrack) return exactTrack;
+
+  const normalizedLabel = normalizeAudioAnchorLabel(trackLabel);
+  if (!normalizedLabel) return null;
+  return getAllAmbianceTracks().find((track) => normalizeAudioAnchorLabel(track.label) === normalizedLabel) || null;
+}
+
 function getPageAudioAnchors(page) {
   if (!page?.paragraphs?.length) return [];
 
-  const template = document.createElement("template");
-  template.innerHTML = page.paragraphs.join("");
-  return Array.from(template.content.querySelectorAll("[data-audio-anchor]"))
-    .map((anchor) => ({
-      trackId: String(anchor.dataset.audioAnchor || "").trim(),
-      anchorId: String(anchor.dataset.audioAnchorId || "").trim(),
-    }))
-    .filter((anchor) => anchor.trackId);
+  return page.paragraphs.flatMap((paragraph) => {
+    const template = document.createElement("template");
+    template.innerHTML = paragraph;
+    const anchors = Array.from(template.content.querySelectorAll("[data-audio-anchor]"));
+    const result = [];
+
+    anchors.forEach((anchor, anchorIndex) => {
+      const item = {
+        trackId: String(anchor.dataset.audioAnchor || "").trim(),
+        trackLabel: String(anchor.dataset.audioLabel || "").trim(),
+        anchorId: String(anchor.dataset.audioAnchorId || "").trim(),
+      };
+      if (!item.trackId) return;
+
+      const previousAnchor = anchors[anchorIndex - 1];
+      if (previousAnchor && hasOnlyWhitespaceBetweenAudioAnchors(previousAnchor, anchor)) {
+        result[result.length - 1] = item;
+        return;
+      }
+      result.push(item);
+    });
+
+    return result;
+  });
 }
 
 function getVisibleAudioAnchorPages() {
@@ -4220,30 +4335,68 @@ function getVisibleAudioAnchorPages() {
 }
 
 function syncPageAudioAnchors() {
-  if (!state.readerPrefs.soundEffects) return false;
+  if (!state.readerPrefs.soundEffects || state.isAnimating) return false;
 
   const book = getBook(state.activeBookId);
   if (!book) return false;
 
+  const visiblePageIndices = getVisibleAudioAnchorPages();
+  const visiblePages = new Set(visiblePageIndices);
+  discardAudioAnchorsOutsidePages(visiblePages);
+
   let queuedAnAnchor = false;
-  getVisibleAudioAnchorPages().forEach((pageIndex) => {
-    getPageAudioAnchors(state.pages[pageIndex]).forEach(({ trackId, anchorId }, anchorIndex) => {
+  visiblePageIndices.forEach((pageIndex) => {
+    getPageAudioAnchors(state.pages[pageIndex]).forEach(({ trackId, trackLabel, anchorId }, anchorIndex) => {
       const key = anchorId
         ? `${book.id}:${anchorId}`
         : `${book.id}:${pageIndex}:${anchorIndex}:${trackId}`;
-      if (state.playedAudioAnchors.has(key)) return;
+      if (state.playedAudioAnchors.has(key) || state.pendingAudioAnchors.has(key)) return;
 
-      const track = getAllAmbianceTracks().find((item) => item.id === trackId);
-      state.playedAudioAnchors.add(key);
+      const track = resolveAudioAnchorTrack(trackId, trackLabel);
       if (!track) return;
 
+      state.pendingAudioAnchors.add(key);
       state.audioAnchorQueue.push({ key, pageIndex, track });
       queuedAnAnchor = true;
     });
   });
 
-  if (queuedAnAnchor) playNextAudioAnchor();
+  if (queuedAnAnchor || (!state.audioAnchorAudio && state.audioAnchorQueue.length)) playNextAudioAnchor();
+  if (!state.audioAnchorAudio && !state.audioAnchorQueue.length && state.suspendedAmbiance) resumeSuspendedAmbiance();
   return queuedAnAnchor || Boolean(state.audioAnchorAudio) || state.audioAnchorQueue.length > 0;
+}
+
+function retryPageAudioAnchorsAfterInteraction() {
+  if (!byId("reader-view")?.classList.contains("is-active") || state.isAnimating) return;
+  if (!syncPageAudioAnchors()) syncChapterAmbiance();
+}
+
+function clearAudioAnchorElement(audio) {
+  if (!audio) return;
+  audio.pause();
+  audio.volume = 0;
+  audio.onended = null;
+  audio.onerror = null;
+  audio.ontimeupdate = null;
+}
+
+function discardAudioAnchorsOutsidePages(visiblePages) {
+  state.audioAnchorQueue = state.audioAnchorQueue.filter((item) => {
+    if (visiblePages.has(item.pageIndex)) return true;
+    state.pendingAudioAnchors.delete(item.key);
+    return false;
+  });
+
+  const activeItem = state.activeAudioAnchorItem;
+  if (!activeItem || visiblePages.has(activeItem.pageIndex)) return;
+
+  const audio = state.audioAnchorAudio;
+  cancelAudioAnchorFade();
+  clearAudioAnchorElement(audio);
+  state.pendingAudioAnchors.delete(activeItem.key);
+  state.audioAnchorAudio = null;
+  state.activeAudioAnchorItem = null;
+  state.audioAnchorFadeOutStarted = false;
 }
 
 function cancelAudioAnchorFade() {
@@ -4311,13 +4464,12 @@ function resumeSuspendedAmbiance() {
 function finishAudioAnchor(audio) {
   if (state.audioAnchorAudio !== audio) return;
 
+  const item = state.activeAudioAnchorItem;
   cancelAudioAnchorFade();
-  audio.pause();
-  audio.volume = 0;
-  audio.onended = null;
-  audio.onerror = null;
-  audio.ontimeupdate = null;
+  clearAudioAnchorElement(audio);
+  if (item) state.pendingAudioAnchors.delete(item.key);
   state.audioAnchorAudio = null;
+  state.activeAudioAnchorItem = null;
   state.audioAnchorFadeOutStarted = false;
 
   if (state.audioAnchorQueue.length) {
@@ -4334,6 +4486,7 @@ function beginAudioAnchor(item) {
   audio.preload = "auto";
   audio.volume = 0;
   state.audioAnchorAudio = audio;
+  state.activeAudioAnchorItem = item;
   state.audioAnchorFadeOutStarted = false;
 
   audio.onended = () => finishAudioAnchor(audio);
@@ -4350,13 +4503,25 @@ function beginAudioAnchor(item) {
 
   const playPromise = audio.play();
   const fadeIn = () => {
+    if (state.audioAnchorAudio !== audio || state.activeAudioAnchorItem !== item) return;
+    state.pendingAudioAnchors.delete(item.key);
+    state.playedAudioAnchors.add(item.key);
     const duration = Number.isFinite(audio.duration) ? audio.duration * 250 : AUDIO_ANCHOR_FADE_IN_MS;
     fadeAudioAnchorVolume(audio, AUDIO_ANCHOR_VOLUME, Math.min(AUDIO_ANCHOR_FADE_IN_MS, duration));
     showReaderToast(`Son : ${item.track.label}`);
   };
 
+  const handlePlayFailure = (error) => {
+    if (state.audioAnchorAudio !== audio) return;
+    state.pendingAudioAnchors.delete(item.key);
+    finishAudioAnchor(audio);
+    if (error?.name === "NotAllowedError") {
+      showReaderToast("Le navigateur a bloqué le son. Touchez la page puis réessayez.");
+    }
+  };
+
   if (playPromise?.then) {
-    playPromise.then(fadeIn).catch(() => finishAudioAnchor(audio));
+    playPromise.then(fadeIn).catch(handlePlayFailure);
   } else {
     fadeIn();
   }
@@ -4365,7 +4530,12 @@ function beginAudioAnchor(item) {
 function playNextAudioAnchor() {
   if (state.audioAnchorAudio) return;
 
-  const next = state.audioAnchorQueue.shift();
+  const visiblePages = new Set(getVisibleAudioAnchorPages());
+  let next = state.audioAnchorQueue.shift();
+  while (next && !visiblePages.has(next.pageIndex)) {
+    state.pendingAudioAnchors.delete(next.key);
+    next = state.audioAnchorQueue.shift();
+  }
   if (!next) {
     resumeSuspendedAmbiance();
     return;
@@ -4377,8 +4547,9 @@ function playNextAudioAnchor() {
   }
 
   const ambianceAudio = state.ambianceAudio;
-  const shouldResumeAmbiance = Boolean(state.isAmbianceEnabled && ambianceAudio && !ambianceAudio.paused);
+  const shouldResumeAmbiance = Boolean(state.isAmbianceEnabled && ambianceAudio);
   if (!shouldResumeAmbiance) {
+    state.resumeAmbianceAfterAnchor = state.resumeAmbianceAfterAnchor || state.isAmbianceEnabled;
     beginAudioAnchor(next);
     return;
   }
@@ -4390,22 +4561,20 @@ function playNextAudioAnchor() {
     targetVolume: ambianceTrack.volume ?? AMBIANCE_VOLUME,
   };
   cancelAmbianceFade();
-  fadeAmbianceVolume(0, () => {
-    ambianceAudio.pause();
-    beginAudioAnchor(next);
-  }, ambianceAudio);
+  ambianceAudio.pause();
+  ambianceAudio.volume = 0;
+  beginAudioAnchor(next);
 }
 
 function cancelAudioAnchorPlayback(resumeAmbiance = false) {
   const audio = state.audioAnchorAudio;
   cancelAudioAnchorFade();
   state.audioAnchorQueue = [];
+  state.pendingAudioAnchors.clear();
   state.audioAnchorAudio = null;
+  state.activeAudioAnchorItem = null;
   state.audioAnchorFadeOutStarted = false;
-  if (audio) {
-    audio.pause();
-    audio.volume = 0;
-  }
+  clearAudioAnchorElement(audio);
 
   if (resumeAmbiance) {
     resumeSuspendedAmbiance();
@@ -4555,6 +4724,7 @@ function goToPage(pageIndex) {
     return;
   }
 
+  cancelAudioAnchorPlayback(true);
   playPageFlipSound();
   animatePageMove(previousPage, nextPage);
 }
@@ -4587,10 +4757,16 @@ function getVisiblePageIndices(pageIndex) {
   return { leftIndex, rightIndex: leftIndex + 1, isMobile };
 }
 
+function finishReaderPageAnimation() {
+  state.isAnimating = false;
+  if (!byId("reader-view")?.classList.contains("is-active")) return;
+  if (!syncPageAudioAnchors()) syncChapterAmbiance();
+}
+
 function animateSinglePageTurn(fromPage, toPage) {
   const book = getBook(state.activeBookId);
   if (!book) {
-    state.isAnimating = false;
+    finishReaderPageAnimation();
     return;
   }
 
@@ -4601,7 +4777,7 @@ function animateSinglePageTurn(fromPage, toPage) {
   if (!state.pages[sourceIndex]) {
     state.currentPage = toPage;
     renderReader();
-    state.isAnimating = false;
+    finishReaderPageAnimation();
     return;
   }
 
@@ -4624,7 +4800,7 @@ function animateSinglePageTurn(fromPage, toPage) {
   window.setTimeout(() => {
     sheet.remove();
     reader.classList.remove("is-turning");
-    state.isAnimating = false;
+    finishReaderPageAnimation();
   }, 660);
 }
 
@@ -4648,7 +4824,7 @@ function animatePageFlutter(fromPage, toPage, distance) {
   window.setTimeout(() => {
     reader.querySelectorAll(".flutter-sheet").forEach((sheet) => sheet.remove());
     reader.classList.remove("is-fluttering", "flutter-forward", "flutter-backward");
-    state.isAnimating = false;
+    finishReaderPageAnimation();
   }, sheetCount * 42 + 720);
 }
 
@@ -4788,6 +4964,9 @@ function escapeHtml(value) {
 }
 
 function bindEvents() {
+  document.addEventListener("pointerdown", retryPageAudioAnchorsAfterInteraction, { passive: true });
+  document.addEventListener("keydown", retryPageAudioAnchorsAfterInteraction);
+
   document.addEventListener("click", (event) => {
     if (!state.isBusy) return;
     event.preventDefault();
