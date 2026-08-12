@@ -170,7 +170,7 @@
               </div>
 
               <details class="ambiance-manager editor-ambiance-manager">
-                <summary>Sons d'ambiance</summary>
+                <summary>Bibliothèque audio (ambiances et sons ponctuels)</summary>
                 <label>
                   Nom du son
                   <input id="ambiance-track-label" type="text" placeholder="Pluie douce" />
@@ -237,6 +237,18 @@
                     Ambiance du chapitre
                     <select id="chapter-ambiance-track"></select>
                   </label>
+                  <div class="audio-anchor-control">
+                    <label>
+                      Son ponctuel
+                      <select id="chapter-audio-anchor-track"></select>
+                    </label>
+                    <button class="secondary-action" id="insert-audio-anchor" type="button">
+                      Insérer l'ancre au curseur
+                    </button>
+                    <small>
+                      L'ancre reste visible dans l'éditeur, mais disparaît pendant la lecture. Le son est joué une seule fois à l'arrivée sur sa page.
+                    </small>
+                  </div>
                   <div class="chapter-illustration-control">
                     <label>
                       Illustration de fin de chapitre
