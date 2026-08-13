@@ -12,6 +12,7 @@ const AMBIANCE_FADE_MS = 1400;
 const AUDIO_ANCHOR_VOLUME = 0.8;
 const AUDIO_ANCHOR_FADE_IN_MS = 900;
 const AUDIO_ANCHOR_FADE_OUT_MS = 1200;
+const AUDIO_ANCHOR_INTERRUPT_FADE_MS = 420;
 const AUDIO_ANCHOR_TOKEN_PATTERN = /\[\[audio-anchor:([a-z0-9_-]{1,100}):([a-z0-9_-]{1,100}|-):([^\]\s]*)\]\]/gi;
 const SUPABASE_SDK_SRC = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 const DB_CONFIG = window.BOOK_OF_MEY_SUPABASE || {};
@@ -81,6 +82,7 @@ const state = {
   audioAnchorAudio: null,
   audioAnchorFadeFrame: 0,
   audioAnchorFadeOutStarted: false,
+  audioAnchorInterrupting: false,
   audioAnchorQueue: [],
   pendingAudioAnchors: new Set(),
   playedAudioAnchors: new Set(),
@@ -4361,7 +4363,11 @@ function syncPageAudioAnchors() {
     });
   });
 
-  if (queuedAnAnchor || (!state.audioAnchorAudio && state.audioAnchorQueue.length)) playNextAudioAnchor();
+  if (queuedAnAnchor && state.audioAnchorAudio) {
+    interruptCurrentAudioAnchorForNext();
+  } else if (queuedAnAnchor || (!state.audioAnchorAudio && state.audioAnchorQueue.length)) {
+    playNextAudioAnchor();
+  }
   if (!state.audioAnchorAudio && !state.audioAnchorQueue.length && state.suspendedAmbiance) resumeSuspendedAmbiance();
   return queuedAnAnchor || Boolean(state.audioAnchorAudio) || state.audioAnchorQueue.length > 0;
 }
@@ -4386,17 +4392,6 @@ function discardAudioAnchorsOutsidePages(visiblePages) {
     state.pendingAudioAnchors.delete(item.key);
     return false;
   });
-
-  const activeItem = state.activeAudioAnchorItem;
-  if (!activeItem || visiblePages.has(activeItem.pageIndex)) return;
-
-  const audio = state.audioAnchorAudio;
-  cancelAudioAnchorFade();
-  clearAudioAnchorElement(audio);
-  state.pendingAudioAnchors.delete(activeItem.key);
-  state.audioAnchorAudio = null;
-  state.activeAudioAnchorItem = null;
-  state.audioAnchorFadeOutStarted = false;
 }
 
 function cancelAudioAnchorFade() {
@@ -4471,6 +4466,7 @@ function finishAudioAnchor(audio) {
   state.audioAnchorAudio = null;
   state.activeAudioAnchorItem = null;
   state.audioAnchorFadeOutStarted = false;
+  state.audioAnchorInterrupting = false;
 
   if (state.audioAnchorQueue.length) {
     playNextAudioAnchor();
@@ -4478,6 +4474,7 @@ function finishAudioAnchor(audio) {
   }
 
   resumeSuspendedAmbiance();
+  if (byId("reader-view")?.classList.contains("is-active")) syncChapterAmbiance();
 }
 
 function beginAudioAnchor(item) {
@@ -4488,6 +4485,7 @@ function beginAudioAnchor(item) {
   state.audioAnchorAudio = audio;
   state.activeAudioAnchorItem = item;
   state.audioAnchorFadeOutStarted = false;
+  state.audioAnchorInterrupting = false;
 
   audio.onended = () => finishAudioAnchor(audio);
   audio.onerror = () => finishAudioAnchor(audio);
@@ -4503,7 +4501,7 @@ function beginAudioAnchor(item) {
 
   const playPromise = audio.play();
   const fadeIn = () => {
-    if (state.audioAnchorAudio !== audio || state.activeAudioAnchorItem !== item) return;
+    if (state.audioAnchorAudio !== audio || state.activeAudioAnchorItem !== item || state.audioAnchorInterrupting) return;
     state.pendingAudioAnchors.delete(item.key);
     state.playedAudioAnchors.add(item.key);
     const duration = Number.isFinite(audio.duration) ? audio.duration * 250 : AUDIO_ANCHOR_FADE_IN_MS;
@@ -4525,6 +4523,15 @@ function beginAudioAnchor(item) {
   } else {
     fadeIn();
   }
+}
+
+function interruptCurrentAudioAnchorForNext() {
+  const audio = state.audioAnchorAudio;
+  if (!audio || !state.audioAnchorQueue.length || state.audioAnchorInterrupting) return;
+
+  state.audioAnchorInterrupting = true;
+  state.audioAnchorFadeOutStarted = true;
+  fadeAudioAnchorVolume(audio, 0, AUDIO_ANCHOR_INTERRUPT_FADE_MS, () => finishAudioAnchor(audio));
 }
 
 function playNextAudioAnchor() {
@@ -4574,6 +4581,7 @@ function cancelAudioAnchorPlayback(resumeAmbiance = false) {
   state.audioAnchorAudio = null;
   state.activeAudioAnchorItem = null;
   state.audioAnchorFadeOutStarted = false;
+  state.audioAnchorInterrupting = false;
   clearAudioAnchorElement(audio);
 
   if (resumeAmbiance) {
@@ -4724,7 +4732,6 @@ function goToPage(pageIndex) {
     return;
   }
 
-  cancelAudioAnchorPlayback(true);
   playPageFlipSound();
   animatePageMove(previousPage, nextPage);
 }
