@@ -5,6 +5,6 @@ window.BOOK_OF_MEY_SUPABASE = {
 
 window.addEventListener("DOMContentLoaded", () => {
   const hotfix = document.createElement("script");
-  hotfix.src = "asset/js/audio-anchor-hotfix.js?v=20260813";
+  hotfix.src = "asset/js/audio-anchor-hotfix.js?v=20260813-2";
   document.body.appendChild(hotfix);
 }, { once: true });
