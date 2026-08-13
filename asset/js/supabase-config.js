@@ -4,7 +4,12 @@ window.BOOK_OF_MEY_SUPABASE = {
 };
 
 window.addEventListener("DOMContentLoaded", () => {
-  const hotfix = document.createElement("script");
-  hotfix.src = "asset/js/audio-anchor-hotfix.js?v=20260813-2";
-  document.body.appendChild(hotfix);
+  [
+    "asset/js/audio-anchor-hotfix.js?v=20260813-4",
+    "asset/js/editor-audio-anchor-hotfix.js?v=20260813",
+  ].forEach((src) => {
+    const hotfix = document.createElement("script");
+    hotfix.src = src;
+    document.body.appendChild(hotfix);
+  });
 }, { once: true });

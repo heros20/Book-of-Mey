@@ -153,6 +153,23 @@
     state.resumeAmbianceAfterAnchor = false;
   };
 
+  showView = function (viewName) {
+    syncArtbookNavButton();
+
+    document.querySelectorAll(".view").forEach((view) => {
+      view.classList.toggle("is-active", view.id === `${viewName}-view`);
+    });
+
+    document.querySelectorAll("[data-view-target]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.viewTarget === viewName);
+    });
+
+    if (viewName !== "reader") {
+      cancelAudioAnchorPlayback(false);
+      stopAmbiance();
+    }
+  };
+
   goToPage = function (pageIndex) {
     const nextPage = Math.min(Math.max(pageIndex, 0), state.pages.length - 1);
 
