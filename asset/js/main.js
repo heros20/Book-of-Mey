@@ -107,6 +107,7 @@ let editorDraftTimer = 0;
 let isFillingEditor = false;
 let supabaseSdkPromise = null;
 let chapterEditorRange = null;
+let chapterAudioAnchorNavigationIndex = -1;
 
 function readJsonStorage(key, fallback) {
   try {
@@ -684,6 +685,7 @@ function showView(viewName) {
   });
 
   if (viewName !== "reader") {
+    cancelAudioAnchorPlayback(false);
     stopAmbiance();
   }
 }
@@ -1088,6 +1090,59 @@ function replaceAdjacentAudioAnchors(anchor) {
   return replacedCount;
 }
 
+function getEditorAudioAnchors() {
+  return Array.from(byId("chapter-content")?.querySelectorAll("[data-audio-anchor]") || []);
+}
+
+function clearCurrentEditorAudioAnchorHighlight() {
+  getEditorAudioAnchors().forEach((anchor) => anchor.classList.remove("is-current-anchor"));
+}
+
+function updateAudioAnchorNavigationButton() {
+  const button = byId("go-to-audio-anchor");
+  if (!button) return;
+
+  const anchorCount = getEditingChapter() ? getEditorAudioAnchors().length : 0;
+  button.disabled = anchorCount <= 0;
+  button.textContent = anchorCount > 1
+    ? `Aller aux ancres (${anchorCount})`
+    : "Aller \u00e0 l'ancre pos\u00e9e";
+  button.setAttribute("aria-label", anchorCount > 1
+    ? `Aller \u00e0 la prochaine ancre sonore parmi ${anchorCount}`
+    : "Aller \u00e0 l'ancre sonore pos\u00e9e");
+}
+
+function goToEditorAudioAnchor() {
+  const editor = byId("chapter-content");
+  const anchors = getEditorAudioAnchors();
+  if (!editor || !anchors.length) {
+    updateAudioAnchorNavigationButton();
+    showReaderToast("Aucune ancre sonore dans ce chapitre.");
+    return;
+  }
+
+  chapterAudioAnchorNavigationIndex = (chapterAudioAnchorNavigationIndex + 1) % anchors.length;
+  const anchor = anchors[chapterAudioAnchorNavigationIndex];
+  clearCurrentEditorAudioAnchorHighlight();
+  anchor.classList.add("is-current-anchor");
+  anchor.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+
+  const range = document.createRange();
+  range.setStartAfter(anchor);
+  range.collapse(true);
+  editor.focus({ preventScroll: true });
+
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  chapterEditorRange = range.cloneRange();
+
+  window.setTimeout(() => anchor.classList.remove("is-current-anchor"), 1800);
+  showReaderToast(anchors.length > 1
+    ? `Ancre sonore ${chapterAudioAnchorNavigationIndex + 1} / ${anchors.length}`
+    : "Ancre sonore trouv\u00e9e.");
+}
+
 function insertAudioAnchor() {
   const editor = byId("chapter-content");
   const select = byId("chapter-audio-anchor-track");
@@ -1126,6 +1181,7 @@ function insertAudioAnchor() {
   selection.addRange(range);
   chapterEditorRange = range.cloneRange();
   updateCurrentChapterDraft();
+  updateAudioAnchorNavigationButton();
   showReaderToast(replacedCount
     ? `Ancre remplacée par « ${track.label} ».`
     : `Ancre « ${track.label} » insérée.`);
@@ -1378,6 +1434,7 @@ function renderChapterControl() {
   const ambianceSelect = byId("chapter-ambiance-track");
   const audioAnchorSelect = byId("chapter-audio-anchor-track");
   const insertAudioAnchorButton = byId("insert-audio-anchor");
+  const goToAudioAnchorButton = byId("go-to-audio-anchor");
   const illustrationFileInput = byId("chapter-illustration-file");
   const removeIllustrationButton = byId("remove-chapter-illustration");
   const deleteButton = byId("delete-chapter");
@@ -1410,8 +1467,10 @@ function renderChapterControl() {
   titleInput.value = chapter?.title || "";
   contentInput.innerHTML = normalizeRichContent(chapter?.content || "");
   chapterEditorRange = null;
+  chapterAudioAnchorNavigationIndex = -1;
   renderChapterAmbianceOptions();
   renderAudioAnchorOptions();
+  updateAudioAnchorNavigationButton();
   if (illustrationFileInput) illustrationFileInput.value = "";
   setChapterIllustrationPreview(chapter?.illustration || "");
   titleInput.disabled = !chapter;
@@ -1420,6 +1479,7 @@ function renderChapterControl() {
   if (ambianceSelect) ambianceSelect.disabled = !chapter;
   if (audioAnchorSelect) audioAnchorSelect.disabled = !chapter;
   if (insertAudioAnchorButton) insertAudioAnchorButton.disabled = !chapter;
+  if (goToAudioAnchorButton) goToAudioAnchorButton.disabled = !chapter || !getEditorAudioAnchors().length;
   if (illustrationFileInput) illustrationFileInput.disabled = !chapter;
   if (removeIllustrationButton) removeIllustrationButton.disabled = !chapter || !chapter.illustration;
   deleteButton.disabled = !chapter;
@@ -1482,6 +1542,7 @@ function updateCurrentChapterDraft() {
     ambianceTrackId: byId("chapter-ambiance-track").value,
   };
   scheduleEditorMaintenance();
+  updateAudioAnchorNavigationButton();
   markEditorDirty("Chapitre modifié, livre non enregistré.");
 }
 
@@ -5036,6 +5097,7 @@ function bindEvents() {
   byId("chapter-content").addEventListener("mouseup", rememberChapterEditorSelection);
   document.addEventListener("selectionchange", rememberChapterEditorSelection);
   byId("insert-audio-anchor").addEventListener("click", insertAudioAnchor);
+  byId("go-to-audio-anchor").addEventListener("click", goToEditorAudioAnchor);
   byId("chapter-illustration-file").addEventListener("change", handleChapterIllustrationFileChange);
   byId("remove-chapter-illustration").addEventListener("click", removeChapterIllustration);
   byId("save-chapter").addEventListener("click", saveCurrentChapter);

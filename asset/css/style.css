@@ -1020,6 +1020,11 @@ a:focus-visible,
   line-height: 1.45;
 }
 
+.audio-anchor-control .audio-anchor-jump {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .rich-text-editor .audio-anchor {
   display: inline-flex;
   align-items: center;
@@ -1036,6 +1041,12 @@ a:focus-visible,
   line-height: 1.2;
   white-space: nowrap;
   user-select: all;
+}
+
+.rich-text-editor .audio-anchor.is-current-anchor {
+  border-color: var(--accent);
+  background: rgba(95, 111, 82, 0.22);
+  box-shadow: 0 0 0 3px rgba(95, 111, 82, 0.18);
 }
 
 .rich-text-editor .audio-anchor::before {
